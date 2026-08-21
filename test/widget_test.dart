@@ -1,0 +1,72 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'package:society_management/main.dart';
+import 'package:society_management/screens/home_screen.dart';
+import 'package:society_management/screens/main_shell.dart';
+import 'package:society_management/theme/app_palette.dart';
+import 'package:society_management/theme/theme_controller.dart';
+
+Widget _buildApp([ThemeMode mode = ThemeMode.light]) {
+  return SocietyApp(themeController: ThemeController(mode));
+}
+
+Color _scaffoldBackground(WidgetTester tester) {
+  return Theme.of(tester.element(find.byType(MainShell))).scaffoldBackgroundColor;
+}
+
+void main() {
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
+  testWidgets('Home screen renders the society management hub',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(_buildApp());
+
+    expect(find.text('SUNRISE HEIGHTS'), findsOneWidget);
+    expect(find.textContaining('Saurabh'), findsOneWidget);
+    expect(find.text('₹4,850.00'), findsOneWidget);
+    expect(find.text('Maintenance due'), findsOneWidget);
+
+    final scrollable = find.descendant(
+      of: find.byType(HomeScreen),
+      matching: find.byType(Scrollable),
+    );
+    await tester.scrollUntilVisible(
+      find.text('Services'),
+      300,
+      scrollable: scrollable,
+    );
+    expect(find.text('Services'), findsOneWidget);
+
+    await tester.scrollUntilVisible(
+      find.text('Latest updates'),
+      300,
+      scrollable: scrollable,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Society maintenance drive'), findsOneWidget);
+  });
+
+  testWidgets('Settings tab toggles between light and dark palette',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(_buildApp(ThemeMode.light));
+
+    expect(_scaffoldBackground(tester), AppPalette.light.canvas);
+
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+    expect(find.text('Theme'), findsOneWidget);
+
+    await tester.tap(find.text('Dark'));
+    await tester.pumpAndSettle();
+
+    expect(_scaffoldBackground(tester), AppPalette.dark.canvas);
+
+    await tester.tap(find.text('Light'));
+    await tester.pumpAndSettle();
+    expect(_scaffoldBackground(tester), AppPalette.light.canvas);
+  });
+}
