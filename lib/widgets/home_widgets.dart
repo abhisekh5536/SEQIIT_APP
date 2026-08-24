@@ -34,12 +34,33 @@ class SectionHeader extends StatelessWidget {
 }
 
 /// The hero card carrying the single most important number.
+///
+/// Renders one of two states from the same gradient shell:
+///  * pending — outstanding [amount] with a primary pay action;
+///  * cleared ([duesCleared]) — a calm "all clear" summary with the last
+///    payment, next invoice date and receipt actions.
 class HeroBalanceCard extends StatelessWidget {
   final String societyName;
   final String period;
+
+  /// Outstanding amount, shown while dues are pending.
   final String amount;
+
+  /// Caption under [amount], shown while dues are pending.
   final String dueCaption;
   final VoidCallback onPay;
+
+  /// Switches the card to its "no dues pending" presentation.
+  final bool duesCleared;
+
+  /// One-line settlement summary for the cleared state,
+  /// e.g. '₹4,850 paid on 5 Aug · Receipt #SH-2408'.
+  final String? paidSummary;
+
+  /// When the next invoice lands, e.g. 'Next invoice · 1 Sep 2026'.
+  final String? nextInvoiceCaption;
+  final VoidCallback? onReceipts;
+  final VoidCallback? onLedger;
 
   const HeroBalanceCard({
     super.key,
@@ -48,12 +69,16 @@ class HeroBalanceCard extends StatelessWidget {
     required this.amount,
     required this.dueCaption,
     required this.onPay,
+    this.duesCleared = false,
+    this.paidSummary,
+    this.nextInvoiceCaption,
+    this.onReceipts,
+    this.onLedger,
   });
 
   @override
   Widget build(BuildContext context) {
     final p = AppTheme.paletteFor(Theme.of(context).brightness);
-    final textTheme = Theme.of(context).textTheme;
 
     return Container(
       clipBehavior: Clip.antiAlias,
@@ -71,84 +96,221 @@ class HeroBalanceCard extends StatelessWidget {
           _decorationCircle(context, p, Alignment.bottomLeft, radius: 90),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: duesCleared
+                ? _buildClearedState(context, p)
+                : _buildPendingState(context, p),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPendingState(BuildContext context, AppPaletteData p) {
+    final textTheme = Theme.of(context).textTheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            _periodPill(textTheme),
+          ],
+        ),
+        const SizedBox(height: 18),
+        Text(
+          'Maintenance due',
+          style: textTheme.bodySmall?.copyWith(
+            color: Colors.white.withValues(alpha: 0.85),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          amount,
+          style: textTheme.headlineLarge?.copyWith(
+            color: Colors.white,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          dueCaption,
+          style: textTheme.bodySmall?.copyWith(
+            color: Colors.white.withValues(alpha: 0.8),
+          ),
+        ),
+        const SizedBox(height: 18),
+        Row(
+          children: [
+            Expanded(
+              child: SizedBox(
+                height: 46,
+                child: ElevatedButton(
+                  onPressed: onPay,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: p.heroStart,
+                  ),
+                  child: const Text('Pay now'),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            _ledgerButton(context),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildClearedState(BuildContext context, AppPaletteData p) {
+    final textTheme = Theme.of(context).textTheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            _periodPill(textTheme),
+            const Spacer(),
+            _paidChip(textTheme),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Container(
+          width: 46,
+          height: 46,
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.2),
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(Icons.task_alt_rounded,
+              size: 26, color: Colors.white),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'All clear!',
+          style: textTheme.headlineLarge?.copyWith(
+            color: Colors.white,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          nextInvoiceCaption ??
+              'Your maintenance account has no pending dues.',
+          style: textTheme.bodySmall?.copyWith(
+            color: Colors.white.withValues(alpha: 0.8),
+          ),
+        ),
+        if (paidSummary != null) ...[
+          const SizedBox(height: 14),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
               children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 5,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.18),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        period,
-                        style: textTheme.labelMedium?.copyWith(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
+                Icon(
+                  Icons.receipt_long_rounded,
+                  size: 18,
+                  color: Colors.white.withValues(alpha: 0.9),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    paidSummary!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: textTheme.bodySmall?.copyWith(
+                      color: Colors.white.withValues(alpha: 0.92),
                     ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                Text(
-                  'Maintenance due',
-                  style: textTheme.bodySmall?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.85),
                   ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  amount,
-                  style: textTheme.headlineLarge?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  dueCaption,
-                  style: textTheme.bodySmall?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.8),
-                  ),
-                ),
-                const SizedBox(height: 18),
-                Row(
-                  children: [
-                    Expanded(
-                      child: SizedBox(
-                        height: 46,
-                        child: ElevatedButton(
-                          onPressed: onPay,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.white,
-                            foregroundColor: p.heroStart,
-                          ),
-                          child: const Text('Pay now'),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    TextButton(
-                      onPressed: () {},
-                      style: TextButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        minimumSize: const Size(0, 46),
-                      ),
-                      child: const Text('Ledger'),
-                    ),
-                  ],
                 ),
               ],
             ),
           ),
         ],
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(
+              child: SizedBox(
+                height: 46,
+                child: ElevatedButton.icon(
+                  onPressed: onReceipts,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: p.heroStart,
+                  ),
+                  icon: const Icon(Icons.receipt_outlined, size: 18),
+                  label: const Text('View receipts'),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            _ledgerButton(context),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _periodPill(TextTheme textTheme) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 10,
+        vertical: 5,
       ),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        period,
+        style: textTheme.labelMedium?.copyWith(
+          color: Colors.white,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
+  Widget _paidChip(TextTheme textTheme) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.22),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.check_rounded, size: 14, color: Colors.white),
+          const SizedBox(width: 4),
+          Text(
+            'Paid',
+            style: textTheme.labelMedium?.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.3,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _ledgerButton(BuildContext context) {
+    return TextButton(
+      onPressed: onLedger,
+      style: TextButton.styleFrom(
+        foregroundColor: Colors.white,
+        minimumSize: const Size(0, 46),
+      ),
+      child: const Text('Ledger'),
     );
   }
 

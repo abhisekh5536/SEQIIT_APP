@@ -5,8 +5,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:society_management/main.dart';
 import 'package:society_management/screens/home_screen.dart';
 import 'package:society_management/screens/main_shell.dart';
-import 'package:society_management/theme/app_palette.dart';
+import 'package:society_management/theme/app_theme.dart';
 import 'package:society_management/theme/theme_controller.dart';
+import 'package:society_management/widgets/home_widgets.dart';
 
 Widget _buildApp([ThemeMode mode = ThemeMode.light]) {
   return SocietyApp(themeController: ThemeController(mode));
@@ -69,4 +70,37 @@ void main() {
     await tester.pumpAndSettle();
     expect(_scaffoldBackground(tester), AppPalette.light.canvas);
   });
+
+  testWidgets('Hero balance card renders the cleared state when dues are paid',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(),
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: HeroBalanceCard(
+              societyName: 'Sunrise Heights',
+              period: 'September 2026',
+              amount: '₹0.00',
+              dueCaption: '',
+              onPay: _noop,
+              duesCleared: true,
+              paidSummary: '₹4,850 paid on 5 Aug · Receipt #SH-2408',
+              nextInvoiceCaption: 'Next invoice · 1 Oct 2026',
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('All clear!'), findsOneWidget);
+    expect(find.text('Paid'), findsOneWidget);
+    expect(find.textContaining('Receipt #SH-2408'), findsOneWidget);
+    expect(find.textContaining('Next invoice'), findsOneWidget);
+    expect(find.text('View receipts'), findsOneWidget);
+    expect(find.text('Ledger'), findsOneWidget);
+    expect(find.text('Maintenance due'), findsNothing);
+  });
 }
+
+void _noop() {}

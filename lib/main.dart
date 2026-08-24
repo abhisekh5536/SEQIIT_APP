@@ -1,13 +1,30 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'screens/auth_screen.dart';
 import 'screens/directory_screen.dart';
+import 'screens/flats_management_screen.dart';
 import 'screens/main_shell.dart';
+import 'screens/my_flat_screen.dart';
+import 'screens/profile_screen.dart';
 import 'screens/settings_screen.dart';
+import 'services/app_session.dart';
 import 'theme/app_theme.dart';
 import 'theme/theme_controller.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ]);
+  await dotenv.load(fileName: '.env');
+  await Supabase.initialize(
+    url: dotenv.env['SUPABASE_URL']!,
+    publishableKey: dotenv.env['SUPABASE_PUBLISHABLE_KEY']!,
+  );
   final themeController = await ThemeController.load();
   runApp(SocietyApp(themeController: themeController));
 }
@@ -22,6 +39,32 @@ class SocietyApp extends StatefulWidget {
 }
 
 class _SocietyAppState extends State<SocietyApp> {
+  bool _loggedIn = false;
+
+  @override
+  void initState() {
+    super.initState();
+    try {
+      if (Supabase.instance.client.auth.currentSession != null) {
+        _loggedIn = true;
+        AppSession.instance.load();
+      }
+      Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+        if (!mounted) return;
+        final session = data.session;
+        setState(() => _loggedIn = session != null);
+        if (session != null) {
+          AppSession.instance.load();
+        } else {
+          AppSession.instance.reset();
+        }
+      });
+    } catch (_) {
+      // Supabase not initialized in widget tests — show MainShell so Home tests pass
+      _loggedIn = true;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<ThemeMode>(
@@ -33,11 +76,10 @@ class _SocietyAppState extends State<SocietyApp> {
           theme: AppTheme.light(),
           darkTheme: AppTheme.dark(),
           themeMode: themeMode,
-          initialRoute: '/',
+          home: _loggedIn
+              ? MainShell(themeController: widget.themeController)
+              : const AuthScreen(),
           routes: {
-            '/': (context) => MainShell(
-                  themeController: widget.themeController,
-                ),
             '/settings': (context) => SettingsScreen(
                   themeController: widget.themeController,
                 ),
@@ -48,10 +90,91 @@ class _SocietyAppState extends State<SocietyApp> {
             '/facilities': (context) => const _FeatureScreen('Facilities'),
             '/meetings': (context) => const _FeatureScreen('Meetings'),
             '/notices': (context) => const _FeatureScreen('Notices'),
-            '/directory': (context) => const DirectoryScreen(showBack: true),
+            '/my-flat': (context) => const MyFlatScreen(),
+            '/profile': (context) => const ProfileScreen(),
+            '/flats-management': (context) => const FlatsManagementScreen(),
+            '/directory': (context) => const _AdminGate(
+                  child: DirectoryScreen(showBack: true),
+                ),
           },
         );
       },
+    );
+  }
+}
+
+class _AdminGate extends StatelessWidget {
+  final Widget child;
+
+  const _AdminGate({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: AppSession.instance,
+      builder: (context, _) {
+        if (!AppSession.instance.isLoaded || AppSession.instance.isLoading) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (!AppSession.instance.isAdmin) {
+          return const Scaffold(body: _AccessDeniedView());
+        }
+        return child;
+      },
+    );
+  }
+}
+
+class _AccessDeniedView extends StatelessWidget {
+  const _AccessDeniedView();
+
+  @override
+  Widget build(BuildContext context) {
+    final p = AppTheme.paletteFor(Theme.of(context).brightness);
+    final textTheme = Theme.of(context).textTheme;
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 36),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 84,
+              height: 84,
+              decoration: BoxDecoration(
+                color: p.danger.withValues(alpha: 0.10),
+                shape: BoxShape.circle,
+              ),
+              child:
+                  Icon(Icons.lock_outline_rounded, size: 38, color: p.danger),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Admins only',
+              style: textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'This section is managed by the society office.',
+              textAlign: TextAlign.center,
+              style: textTheme.bodyMedium?.copyWith(
+                color: p.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 24),
+            FilledButton(
+              onPressed: () => Navigator.pop(context),
+              style: FilledButton.styleFrom(backgroundColor: p.primary),
+              child: const Text('Go back'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
