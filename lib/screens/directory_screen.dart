@@ -544,7 +544,7 @@ class _DirectoryScreenState extends State<DirectoryScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'SUNRISE HEIGHTS',
+                AppSession.instance.societyName.toUpperCase(),
                 style: textTheme.labelSmall?.copyWith(color: p.primary, letterSpacing: 1.6, fontWeight: FontWeight.w800),
               ),
               const SizedBox(height: 6),

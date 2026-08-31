@@ -64,7 +64,7 @@ class _AuthScreenState extends State<AuthScreen> {
           return;
         }
       }
-    } on AuthApiException catch (e) {
+    } on AuthException catch (e) {
       if (mounted) {
         setState(() => _loading = false);
         final msg = e.message.toLowerCase();
@@ -77,12 +77,13 @@ class _AuthScreenState extends State<AuthScreen> {
         }
         setState(() => _errorMessage = _friendlyError(e.message));
       }
-    } catch (_) {
+    } catch (e) {
       if (mounted) {
         setState(() {
           _loading = false;
-          _errorMessage =
-              'Something went wrong. Check your connection and try again.';
+          _errorMessage = e.toString().contains('SocketException')
+              ? 'Could not connect. Check your internet connection.'
+              : 'Sign in failed: $e';
         });
       }
     } finally {

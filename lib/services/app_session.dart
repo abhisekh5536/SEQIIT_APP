@@ -27,17 +27,28 @@ class AppSession extends ChangeNotifier {
   bool _isAdmin = false;
   String? _adminName;
   String? _societyId;
+  String? _societyName;
+  String? _societyCity;
+  String? _societyAddress;
   List<ResidentRecord> _myResidences = const [];
   Map<String, FlatInfo> _myFlats = const {};
   List<ResidentRecord> _householdMembers = const [];
   List<VehicleRecord> _myVehicles = const [];
+  ResidentJoinRequest? _pendingJoinRequest;
+  int _pendingApprovalsCount = 0;
 
   bool get isLoading => _loading;
   bool get isLoaded => _loaded;
   bool get isAdmin => _isAdmin;
+  bool get isUnlinkedUser => _loaded && !_isAdmin && _myResidences.isEmpty;
   String? get adminName => _adminName;
   String? get societyId => _societyId;
+  String get societyName => _societyName ?? _pendingJoinRequest?.societyName ?? 'My Society';
+  String? get societyCity => _societyCity;
+  String? get societyAddress => _societyAddress;
   List<ResidentRecord> get myResidences => _myResidences;
+  ResidentJoinRequest? get pendingJoinRequest => _pendingJoinRequest;
+  int get pendingApprovalsCount => _pendingApprovalsCount;
 
   /// Other people registered in this user's flats (family members,
   /// co-owners, tenants). Requires the household-visibility policy.
@@ -154,6 +165,40 @@ class AppSession extends ChangeNotifier {
       _myResidences = List.unmodifiable(records);
       _myFlats = Map.unmodifiable(flats);
 
+      // Fetch society metadata (name, address, city, state) dynamically
+      if (_societyId != null) {
+        try {
+          final socRow = await client
+              .from('societies')
+              .select('name, address, city, state')
+              .eq('id', _societyId!)
+              .maybeSingle();
+          if (socRow != null) {
+            _societyName = socRow['name'] as String?;
+            _societyCity = socRow['city'] as String?;
+            _societyAddress = socRow['address'] as String?;
+          }
+        } catch (e) {
+          debugPrint('Error fetching society details: $e');
+        }
+      } else {
+        _societyName = null;
+        _societyCity = null;
+        _societyAddress = null;
+      }
+
+      // If user is admin, count pending approvals
+      if (_isAdmin && _societyId != null) {
+        await refreshAdminApprovalsCount();
+      }
+
+      // If user is unlinked (neither admin nor linked resident), check for pending join request
+      if (!_isAdmin && records.isEmpty) {
+        await refreshJoinRequest();
+      } else {
+        _pendingJoinRequest = null;
+      }
+
       // Household members + vehicles for this user's flats.
       // Both are best-effort: they need the 04_profile_self_service
       // migration; on older schemas we silently fall back to empty.
@@ -200,15 +245,61 @@ class AppSession extends ChangeNotifier {
     }
   }
 
+  Future<void> refreshAdminApprovalsCount() async {
+    final client = _client;
+    final socId = _societyId;
+    if (client == null || socId == null || !_isAdmin) return;
+    try {
+      final res = await client
+          .from('resident_join_requests')
+          .select('id')
+          .eq('society_id', socId)
+          .eq('status', 'pending');
+      _pendingApprovalsCount = (res as List).length;
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error loading approvals count: $e');
+    }
+  }
+
+  Future<void> refreshJoinRequest() async {
+    final client = _client;
+    final user = client?.auth.currentUser;
+    if (client == null || user == null) return;
+    try {
+      final res = await client
+          .from('resident_join_requests')
+          .select('*, societies(name), flats(flat_number, blocks(name))')
+          .eq('user_id', user.id)
+          .order('created_at', ascending: false)
+          .limit(1);
+
+      final list = (res as List).cast<Map<String, dynamic>>();
+      if (list.isNotEmpty) {
+        _pendingJoinRequest = ResidentJoinRequest.fromMap(list.first);
+      } else {
+        _pendingJoinRequest = null;
+      }
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error loading join request: $e');
+    }
+  }
+
   void reset() {
     _loaded = false;
     _isAdmin = false;
     _adminName = null;
     _societyId = null;
+    _societyName = null;
+    _societyCity = null;
+    _societyAddress = null;
     _myResidences = const [];
     _myFlats = const {};
     _householdMembers = const [];
     _myVehicles = const [];
+    _pendingJoinRequest = null;
+    _pendingApprovalsCount = 0;
     notifyListeners();
   }
 }

@@ -3,9 +3,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'screens/admin_approvals_screen.dart';
 import 'screens/auth_screen.dart';
 import 'screens/directory_screen.dart';
 import 'screens/flats_management_screen.dart';
+import 'screens/join_society_screen.dart';
 import 'screens/main_shell.dart';
 import 'screens/my_flat_screen.dart';
 import 'screens/profile_screen.dart';
@@ -96,6 +98,10 @@ class _SocietyAppState extends State<SocietyApp> {
             '/directory': (context) => const _AdminGate(
                   child: DirectoryScreen(showBack: true),
                 ),
+            '/admin-approvals': (context) => const _AdminGate(
+                  child: AdminApprovalsScreen(),
+                ),
+            '/join-society': (context) => const JoinSocietyScreen(),
           },
         );
       },
