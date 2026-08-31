@@ -166,3 +166,170 @@ class VehicleRecord {
     );
   }
 }
+
+class SocietyInfo {
+  final String id;
+  final String name;
+  final String? address;
+  final String? city;
+  final String? state;
+  final String? registrationNumber;
+
+  const SocietyInfo({
+    required this.id,
+    required this.name,
+    this.address,
+    this.city,
+    this.state,
+    this.registrationNumber,
+  });
+
+  String get locationSubtitle {
+    final parts = [city, state].where((e) => e != null && e.trim().isNotEmpty).toList();
+    if (parts.isNotEmpty) return parts.join(', ');
+    return address ?? '';
+  }
+
+  factory SocietyInfo.fromMap(Map<String, dynamic> m) => SocietyInfo(
+        id: m['id']?.toString() ?? '',
+        name: m['name']?.toString() ?? '',
+        address: m['address']?.toString(),
+        city: m['city']?.toString(),
+        state: m['state']?.toString(),
+        registrationNumber: m['registration_number']?.toString(),
+      );
+}
+
+class VacantFlatOption {
+  final String flatId;
+  final String blockId;
+  final String blockName;
+  final String flatNumber;
+  final int floorNumber;
+  final String type;
+
+  const VacantFlatOption({
+    required this.flatId,
+    required this.blockId,
+    required this.blockName,
+    required this.flatNumber,
+    required this.floorNumber,
+    required this.type,
+  });
+
+  String get displayTitle => '$flatNumber ($type)';
+  String get displaySubtitle => 'Floor $floorNumber · $blockName';
+
+  factory VacantFlatOption.fromFlatAndBlock(Map<String, dynamic> flatMap, String blockName) {
+    return VacantFlatOption(
+      flatId: flatMap['id']?.toString() ?? '',
+      blockId: flatMap['block_id']?.toString() ?? '',
+      blockName: blockName,
+      flatNumber: flatMap['flat_number']?.toString() ?? '',
+      floorNumber: (flatMap['floor_number'] is int ? flatMap['floor_number'] as int : int.tryParse(flatMap['floor_number']?.toString() ?? '0') ?? 0),
+      type: flatMap['type']?.toString() ?? 'Apartment',
+    );
+  }
+}
+
+class ResidentJoinRequest {
+  final String id;
+  final String societyId;
+  final String flatId;
+  final String userId;
+  final String fullName;
+  final String email;
+  final String phone;
+  final String residentType;
+  final bool isPrimary;
+  final String? agreementHolderName;
+  final DateTime? agreementDate;
+  final String? aadharLast4;
+  final String status;
+  final String? rejectionReason;
+  final DateTime? createdAt;
+  final DateTime? reviewedAt;
+
+  // Joined metadata for UI display
+  final String? societyName;
+  final String? flatNumber;
+  final String? blockName;
+
+  const ResidentJoinRequest({
+    required this.id,
+    required this.societyId,
+    required this.flatId,
+    required this.userId,
+    required this.fullName,
+    required this.email,
+    required this.phone,
+    required this.residentType,
+    required this.isPrimary,
+    this.agreementHolderName,
+    this.agreementDate,
+    this.aadharLast4,
+    required this.status,
+    this.rejectionReason,
+    this.createdAt,
+    this.reviewedAt,
+    this.societyName,
+    this.flatNumber,
+    this.blockName,
+  });
+
+  bool get isPending => status == 'pending';
+  bool get isApproved => status == 'approved';
+  bool get isRejected => status == 'rejected';
+  bool get isCancelled => status == 'cancelled';
+
+  String get roleLabel {
+    if (residentType == 'owner') return 'Owner';
+    if (residentType == 'tenant') return 'Tenant';
+    if (residentType == 'family') return 'Family Member';
+    return residentType;
+  }
+
+  static DateTime? _parseDate(dynamic v) {
+    if (v == null) return null;
+    return DateTime.tryParse(v.toString());
+  }
+
+  factory ResidentJoinRequest.fromMap(Map<String, dynamic> m) {
+    String? socName;
+    String? flatNum;
+    String? blkName;
+
+    if (m['societies'] is Map<String, dynamic>) {
+      socName = m['societies']['name']?.toString();
+    }
+    if (m['flats'] is Map<String, dynamic>) {
+      flatNum = m['flats']['flat_number']?.toString();
+      if (m['flats']['blocks'] is Map<String, dynamic>) {
+        blkName = m['flats']['blocks']['name']?.toString();
+      }
+    }
+
+    return ResidentJoinRequest(
+      id: m['id']?.toString() ?? '',
+      societyId: m['society_id']?.toString() ?? '',
+      flatId: m['flat_id']?.toString() ?? '',
+      userId: m['user_id']?.toString() ?? '',
+      fullName: m['full_name']?.toString() ?? '',
+      email: m['email']?.toString() ?? '',
+      phone: m['phone']?.toString() ?? '',
+      residentType: m['resident_type']?.toString() ?? 'owner',
+      isPrimary: (m['is_primary'] == true || m['is_primary'] == 1 || m['is_primary']?.toString() == 'true'),
+      agreementHolderName: m['agreement_holder_name']?.toString(),
+      agreementDate: _parseDate(m['agreement_date']),
+      aadharLast4: m['aadhar_last4']?.toString(),
+      status: m['status']?.toString() ?? 'pending',
+      rejectionReason: m['rejection_reason']?.toString(),
+      createdAt: _parseDate(m['created_at']),
+      reviewedAt: _parseDate(m['reviewed_at']),
+      societyName: socName,
+      flatNumber: flatNum,
+      blockName: blkName,
+    );
+  }
+}
+

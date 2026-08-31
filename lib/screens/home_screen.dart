@@ -5,6 +5,8 @@ import '../models/society_models.dart';
 import '../services/app_session.dart';
 import '../theme/app_theme.dart';
 import '../widgets/home_widgets.dart';
+import 'join_society_screen.dart';
+import 'request_status_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -16,50 +18,14 @@ class HomeScreen extends StatelessWidget {
     QuickAction(label: 'Request', icon: Icons.edit_note_rounded, route: '/complaints'),
   ];
 
-  static List<SocietyService> _servicesFor(bool isAdmin) => [
-        SocietyService(
-          title: 'Maintenance',
-          subtitle: 'Dues & ledger',
-          icon: Icons.payments_outlined,
-          route: '/maintenance',
-        ),
-        SocietyService(
-          title: 'Visitors',
-          subtitle: 'Gate & guests',
-          icon: Icons.person_pin_outlined,
-          route: '/visitors',
-        ),
-        SocietyService(
-          title: 'Complaints',
-          subtitle: 'Track & resolve',
-          icon: Icons.report_problem_outlined,
-          route: '/complaints',
-        ),
-        SocietyService(
-          title: 'Staff',
-          subtitle: 'Roster & payslips',
-          icon: Icons.engineering_outlined,
-          route: '/staff',
-        ),
-        SocietyService(
-          title: 'Facilities',
-          subtitle: 'Hall, gym & more',
-          icon: Icons.event_seat_outlined,
-          route: '/facilities',
-        ),
-        SocietyService(
-          title: 'Meetings',
-          subtitle: 'AGM & minutes',
-          icon: Icons.groups_outlined,
-          route: '/meetings',
-        ),
-        SocietyService(
-          title: 'Notices',
-          subtitle: 'Board updates',
-          icon: Icons.campaign_outlined,
-          route: '/notices',
-        ),
-        if (isAdmin) ...[
+  static List<SocietyService> _servicesFor(bool isAdmin) => isAdmin
+      ? [
+          const SocietyService(
+            title: 'Approvals',
+            subtitle: 'Resident requests',
+            icon: Icons.how_to_reg_outlined,
+            route: '/admin-approvals',
+          ),
           const SocietyService(
             title: 'Directory',
             subtitle: 'Residents list',
@@ -72,14 +38,99 @@ class HomeScreen extends StatelessWidget {
             icon: Icons.domain_outlined,
             route: '/flats-management',
           ),
-        ] else
+          const SocietyService(
+            title: 'Maintenance',
+            subtitle: 'Dues & billing',
+            icon: Icons.payments_outlined,
+            route: '/maintenance',
+          ),
+          const SocietyService(
+            title: 'Visitors',
+            subtitle: 'Gate & security logs',
+            icon: Icons.person_pin_outlined,
+            route: '/visitors',
+          ),
+          const SocietyService(
+            title: 'Complaints',
+            subtitle: 'Track & resolve',
+            icon: Icons.report_problem_outlined,
+            route: '/complaints',
+          ),
+          const SocietyService(
+            title: 'Staff',
+            subtitle: 'Roster & guards',
+            icon: Icons.engineering_outlined,
+            route: '/staff',
+          ),
+          const SocietyService(
+            title: 'Facilities',
+            subtitle: 'Hall, gym & bookings',
+            icon: Icons.event_seat_outlined,
+            route: '/facilities',
+          ),
+          const SocietyService(
+            title: 'Meetings',
+            subtitle: 'AGM & minutes',
+            icon: Icons.groups_outlined,
+            route: '/meetings',
+          ),
+          const SocietyService(
+            title: 'Notices',
+            subtitle: 'Board circulars',
+            icon: Icons.campaign_outlined,
+            route: '/notices',
+          ),
+        ]
+      : [
+          const SocietyService(
+            title: 'Maintenance',
+            subtitle: 'Pay dues & ledger',
+            icon: Icons.payments_outlined,
+            route: '/maintenance',
+          ),
+          const SocietyService(
+            title: 'Visitors',
+            subtitle: 'Gate pass & guests',
+            icon: Icons.qr_code_2_outlined,
+            route: '/visitors',
+          ),
+          const SocietyService(
+            title: 'Helpdesk',
+            subtitle: 'Raise complaints',
+            icon: Icons.support_agent_outlined,
+            route: '/complaints',
+          ),
           const SocietyService(
             title: 'My Flat',
-            subtitle: 'Your home details',
+            subtitle: 'Family & household',
             icon: Icons.home_outlined,
             route: '/my-flat',
           ),
-      ];
+          const SocietyService(
+            title: 'Facilities',
+            subtitle: 'Club, pool & gym',
+            icon: Icons.event_seat_outlined,
+            route: '/facilities',
+          ),
+          const SocietyService(
+            title: 'Vehicles',
+            subtitle: 'Parking & tags',
+            icon: Icons.directions_car_outlined,
+            route: '/profile',
+          ),
+          const SocietyService(
+            title: 'Notices',
+            subtitle: 'Board updates',
+            icon: Icons.campaign_outlined,
+            route: '/notices',
+          ),
+          const SocietyService(
+            title: 'Emergency',
+            subtitle: 'Gate & SOS contacts',
+            icon: Icons.shield_outlined,
+            route: '/settings',
+          ),
+        ];
 
   static final _announcements = sampleAnnouncements;
 
@@ -90,7 +141,17 @@ class HomeScreen extends StatelessWidget {
     return AnimatedBuilder(
       animation: AppSession.instance,
       builder: (context, _) {
-        final services = _servicesFor(AppSession.instance.isAdmin);
+        final session = AppSession.instance;
+
+        // If user is unlisted (neither admin nor linked resident), show claim flow
+        if (session.isUnlinkedUser) {
+          if (session.pendingJoinRequest != null) {
+            return RequestStatusScreen(request: session.pendingJoinRequest!);
+          }
+          return const JoinSocietyScreen();
+        }
+
+        final services = _servicesFor(session.isAdmin);
         return Scaffold(
           body: SafeArea(
             bottom: false,
@@ -101,11 +162,12 @@ class HomeScreen extends StatelessWidget {
                   padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
                   sliver: SliverToBoxAdapter(
                     child: HeroBalanceCard(
-                      societyName: 'Sunrise Heights',
+                      societyName: session.societyName,
                       period: 'August 2026',
                       amount: '₹4,850.00',
-                      dueCaption:
-                          'Due by 15 August · Tower B, Flat 204',
+                      dueCaption: session.flatSubtitle != null
+                          ? 'Due by 15 August · ${session.flatSubtitle}'
+                          : 'Due by 15 August · Flat Details Pending',
                       onPay: () =>
                           Navigator.pushNamed(context, '/maintenance'),
                       onLedger: () =>
@@ -214,7 +276,7 @@ class HomeScreen extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'SUNRISE HEIGHTS',
+                  AppSession.instance.societyName.toUpperCase(),
                   style: textTheme.labelSmall?.copyWith(
                     color: p.primary,
                     letterSpacing: 1.6,
@@ -236,9 +298,55 @@ class HomeScreen extends StatelessWidget {
               ],
             ),
           ),
+          if (AppSession.instance.isAdmin) ...[
+            _notificationBell(context, p),
+            const SizedBox(width: 10),
+          ],
           _avatar(context, p),
         ],
       ),
+    );
+  }
+
+  Widget _notificationBell(BuildContext context, AppPaletteData p) {
+    final pendingCount = AppSession.instance.pendingApprovalsCount;
+
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        IconButton(
+          onPressed: () => Navigator.pushNamed(context, '/admin-approvals'),
+          icon: const Icon(Icons.notifications_outlined),
+          style: IconButton.styleFrom(
+            backgroundColor: p.card,
+            side: BorderSide(color: p.hairline),
+            padding: const EdgeInsets.all(10),
+          ),
+        ),
+        if (pendingCount > 0)
+          Positioned(
+            top: 4,
+            right: 4,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE68A00),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: p.card, width: 1.5),
+              ),
+              constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+              child: Text(
+                '$pendingCount',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../services/app_session.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_controller.dart';
 import 'directory_screen.dart';
 import 'home_screen.dart';
+import 'my_flat_screen.dart';
 import 'notices_screen.dart';
 import 'settings_screen.dart';
 
@@ -21,21 +23,35 @@ class _MainShellState extends State<MainShell> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: IndexedStack(
-        index: _index,
-        children: [
+    return AnimatedBuilder(
+      animation: AppSession.instance,
+      builder: (context, _) {
+        final isAdmin = AppSession.instance.isAdmin;
+
+        final pages = [
           const HomeScreen(),
           const NoticesScreen(),
-          const DirectoryScreen(),
+          if (isAdmin)
+            const DirectoryScreen()
+          else
+            const MyFlatScreen(),
           SettingsScreen(themeController: widget.themeController),
-        ],
-      ),
-      bottomNavigationBar: _buildNavBar(context),
+        ];
+
+        final safeIndex = _index < pages.length ? _index : 0;
+
+        return Scaffold(
+          body: IndexedStack(
+            index: safeIndex,
+            children: pages,
+          ),
+          bottomNavigationBar: _buildNavBar(context, isAdmin, safeIndex),
+        );
+      },
     );
   }
 
-  Widget _buildNavBar(BuildContext context) {
+  Widget _buildNavBar(BuildContext context, bool isAdmin, int selectedIndex) {
     final p = Theme.of(context).colorScheme;
     final palette = AppTheme.paletteFor(Theme.of(context).brightness);
 
@@ -45,25 +61,32 @@ class _MainShellState extends State<MainShell> {
         border: Border(top: BorderSide(color: palette.hairline)),
       ),
       child: NavigationBar(
-        selectedIndex: _index,
+        selectedIndex: selectedIndex,
         onDestinationSelected: (index) => setState(() => _index = index),
-        destinations: const [
-          NavigationDestination(
+        destinations: [
+          const NavigationDestination(
             icon: Icon(Icons.home_outlined),
             selectedIcon: Icon(Icons.home_rounded),
             label: 'Home',
           ),
-          NavigationDestination(
+          const NavigationDestination(
             icon: Icon(Icons.campaign_outlined),
             selectedIcon: Icon(Icons.campaign_rounded),
             label: 'Notices',
           ),
-          NavigationDestination(
-            icon: Icon(Icons.people_outline_rounded),
-            selectedIcon: Icon(Icons.people_rounded),
-            label: 'Directory',
-          ),
-          NavigationDestination(
+          if (isAdmin)
+            const NavigationDestination(
+              icon: Icon(Icons.people_outline_rounded),
+              selectedIcon: Icon(Icons.people_rounded),
+              label: 'Directory',
+            )
+          else
+            const NavigationDestination(
+              icon: Icon(Icons.home_work_outlined),
+              selectedIcon: Icon(Icons.home_work_rounded),
+              label: 'My Flat',
+            ),
+          const NavigationDestination(
             icon: Icon(Icons.tune_outlined),
             selectedIcon: Icon(Icons.tune_rounded),
             label: 'Settings',
@@ -72,4 +95,4 @@ class _MainShellState extends State<MainShell> {
       ),
     );
   }
-}
+}
