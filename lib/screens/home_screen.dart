@@ -1,16 +1,29 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../data/sample_data.dart';
+import '../models/complaint_models.dart';
+import '../models/notice_models.dart';
 import '../models/society_models.dart';
 import '../services/app_session.dart';
+import '../services/complaints_service.dart';
+import '../services/notifications_service.dart';
+import '../services/notices_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/home_widgets.dart';
+import '../widgets/skeleton_loader.dart';
 import 'join_society_screen.dart';
+import 'notices/notice_detail_screen.dart';
 import 'request_status_screen.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
   static const _quickActions = [
     QuickAction(label: 'Pay dues', icon: Icons.payments_rounded, route: '/maintenance'),
     QuickAction(label: 'Facility', icon: Icons.event_seat_rounded, route: '/facilities'),
@@ -119,20 +132,78 @@ class HomeScreen extends StatelessWidget {
             route: '/profile',
           ),
           const SocietyService(
-            title: 'Notices',
-            subtitle: 'Board updates',
-            icon: Icons.campaign_outlined,
-            route: '/notices',
-          ),
-          const SocietyService(
-            title: 'Emergency',
-            subtitle: 'Gate & SOS contacts',
+            title: 'Security',
+            subtitle: 'Emergency contacts',
             icon: Icons.shield_outlined,
             route: '/settings',
           ),
         ];
 
-  static final _announcements = sampleAnnouncements;
+  List<NoticeRecord> _liveNotices = [];
+  int _allNoticesCount = 0;
+  int _unreadNoticesCount = 0;
+  int _openRequestsCount = 0;
+  bool _isLoadingHome = false;
+
+  @override
+  void initState() {
+    super.initState();
+    AppSession.instance.addListener(_onSessionChanged);
+    _loadHomeData();
+  }
+
+  @override
+  void dispose() {
+    AppSession.instance.removeListener(_onSessionChanged);
+    super.dispose();
+  }
+
+  void _onSessionChanged() {
+    if (mounted && AppSession.instance.isLoaded) {
+      _loadHomeData(skipSessionLoad: true);
+    }
+  }
+
+  Future<void> _loadHomeData({bool skipSessionLoad = false}) async {
+    try {
+      if (!skipSessionLoad && !AppSession.instance.isLoaded && !AppSession.instance.isLoading) {
+        await AppSession.instance.load();
+      }
+
+      final notices = await NoticesService.instance.fetchResidentNotices();
+      int openReqs = 0;
+      try {
+        final session = AppSession.instance;
+        if (session.isAdmin) {
+          final complaints = await ComplaintsService.instance.fetchSocietyComplaints();
+          openReqs = complaints.where((c) =>
+            c.status == ComplaintStatus.open ||
+            c.status == ComplaintStatus.inProgress ||
+            c.status == ComplaintStatus.reopened
+          ).length;
+        } else {
+          final complaints = await ComplaintsService.instance.fetchResidentComplaints();
+          openReqs = complaints.where((c) =>
+            c.status == ComplaintStatus.open ||
+            c.status == ComplaintStatus.inProgress ||
+            c.status == ComplaintStatus.reopened
+          ).length;
+        }
+      } catch (_) {}
+
+      if (mounted) {
+        setState(() {
+          _liveNotices = notices.take(3).toList();
+          _allNoticesCount = notices.length;
+          _unreadNoticesCount = notices.where((n) => !n.isReadByMe).length;
+          _openRequestsCount = openReqs;
+          _isLoadingHome = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _isLoadingHome = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -142,6 +213,12 @@ class HomeScreen extends StatelessWidget {
       animation: AppSession.instance,
       builder: (context, _) {
         final session = AppSession.instance;
+
+        if (!session.isLoaded && _isLoadingHome) {
+          return const Scaffold(
+            body: HomeScreenSkeleton(),
+          );
+        }
 
         // If user is unlisted (neither admin nor linked resident), show claim flow
         if (session.isUnlinkedUser) {
@@ -229,27 +306,177 @@ class HomeScreen extends StatelessWidget {
                       title: 'Latest updates',
                       actionLabel: 'View all',
                       onAction: () =>
-                          Navigator.pushNamed(context, '/notices'),
+                          Navigator.pushNamed(context, '/notices').then((_) => _loadHomeData()),
                     ),
                   ),
                 ),
                 SliverPadding(
                   padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
-                  sliver: SliverList(
-                    delegate: SliverChildBuilderDelegate(
-                      (context, index) => Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: NoticeCard(announcement: _announcements[index]),
-                      ),
-                      childCount: _announcements.length,
-                    ),
-                  ),
+                  sliver: _buildLatestUpdatesList(context, p),
                 ),
               ],
             ),
           ),
         );
       },
+    );
+  }
+
+  Widget _buildLatestUpdatesList(BuildContext context, AppPaletteData p) {
+    if (_liveNotices.isNotEmpty) {
+      return SliverList(
+        delegate: SliverChildBuilderDelegate(
+          (context, index) {
+            final notice = _liveNotices[index];
+            final catColor = notice.category.color(p);
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: InkWell(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => NoticeDetailScreen(notice: notice),
+                    ),
+                  ).then((_) => _loadHomeData());
+                },
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: p.card,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: notice.isPinned
+                          ? p.warning.withValues(alpha: 0.5)
+                          : p.hairline,
+                      width: notice.isPinned ? 1.5 : 1.0,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              notice.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                    fontWeight: notice.isReadByMe
+                                        ? FontWeight.w600
+                                        : FontWeight.w800,
+                                  ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: catColor.withValues(alpha: 0.14),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              notice.category.label,
+                              style: TextStyle(
+                                color: catColor,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        notice.body,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: p.textSecondary,
+                              height: 1.4,
+                            ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          if (notice.isEvent && notice.formattedEventBadge != null) ...[
+                            Icon(Icons.schedule_rounded, size: 12, color: p.secondary),
+                            const SizedBox(width: 4),
+                            Text(
+                              notice.formattedEventBadge!,
+                              style: TextStyle(
+                                color: p.secondary,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ] else ...[
+                            Text(
+                              notice.relativeTime,
+                              style: TextStyle(
+                                color: p.textTertiary,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                          const Spacer(),
+                          if (!notice.isReadByMe)
+                            Container(
+                              width: 7,
+                              height: 7,
+                              decoration: const BoxDecoration(
+                                color: Color(0xFFE68A00),
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+          childCount: _liveNotices.length,
+        ),
+      );
+    }
+
+    return SliverToBoxAdapter(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+        decoration: BoxDecoration(
+          color: p.card,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: p.hairline),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.campaign_outlined, size: 36, color: p.textTertiary),
+            const SizedBox(height: 8),
+            Text(
+              'No active notices right now',
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: p.textSecondary,
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              'All community updates and circulars will appear here',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: p.textTertiary,
+                  ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -298,10 +525,8 @@ class HomeScreen extends StatelessWidget {
               ],
             ),
           ),
-          if (AppSession.instance.isAdmin) ...[
-            _notificationBell(context, p),
-            const SizedBox(width: 10),
-          ],
+          _notificationBell(context, p),
+          const SizedBox(width: 10),
           _avatar(context, p),
         ],
       ),
@@ -309,44 +534,53 @@ class HomeScreen extends StatelessWidget {
   }
 
   Widget _notificationBell(BuildContext context, AppPaletteData p) {
-    final pendingCount = AppSession.instance.pendingApprovalsCount;
+    return AnimatedBuilder(
+      animation: NotificationsService.instance,
+      builder: (context, _) {
+        final unreadCount = NotificationsService.instance.unreadCount;
 
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        IconButton(
-          onPressed: () => Navigator.pushNamed(context, '/admin-approvals'),
-          icon: const Icon(Icons.notifications_outlined),
-          style: IconButton.styleFrom(
-            backgroundColor: p.card,
-            side: BorderSide(color: p.hairline),
-            padding: const EdgeInsets.all(10),
-          ),
-        ),
-        if (pendingCount > 0)
-          Positioned(
-            top: 4,
-            right: 4,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-              decoration: BoxDecoration(
-                color: const Color(0xFFE68A00),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: p.card, width: 1.5),
-              ),
-              constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
-              child: Text(
-                '$pendingCount',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w800,
-                ),
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            IconButton(
+              onPressed: () {
+                HapticFeedback.lightImpact();
+                Navigator.pushNamed(context, '/notifications');
+              },
+              icon: const Icon(Icons.notifications_outlined),
+              tooltip: 'Notifications',
+              style: IconButton.styleFrom(
+                backgroundColor: p.card,
+                side: BorderSide(color: p.hairline),
+                padding: const EdgeInsets.all(10),
               ),
             ),
-          ),
-      ],
+            if (unreadCount > 0)
+              Positioned(
+                top: 4,
+                right: 4,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE68A00),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: p.card, width: 1.5),
+                  ),
+                  constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                  child: Text(
+                    '$unreadCount',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 
@@ -379,24 +613,36 @@ class HomeScreen extends StatelessWidget {
             value: '12',
             label: 'Visitors today',
             accent: p.secondary,
+            onTap: () {
+              HapticFeedback.lightImpact();
+              Navigator.pushNamed(context, '/visitors');
+            },
           ),
         ),
         const SizedBox(width: 12),
         Expanded(
           child: StatCard(
             icon: Icons.campaign_outlined,
-            value: '3',
-            label: 'New notices',
+            value: '$_allNoticesCount',
+            label: 'All notices',
             accent: p.success,
+            onTap: () {
+              HapticFeedback.lightImpact();
+              Navigator.pushNamed(context, '/notices').then((_) => _loadHomeData());
+            },
           ),
         ),
         const SizedBox(width: 12),
         Expanded(
           child: StatCard(
             icon: Icons.assignment_outlined,
-            value: '2',
+            value: '$_openRequestsCount',
             label: 'Open requests',
             accent: p.warning,
+            onTap: () {
+              HapticFeedback.lightImpact();
+              Navigator.pushNamed(context, '/complaints').then((_) => _loadHomeData());
+            },
           ),
         ),
       ],

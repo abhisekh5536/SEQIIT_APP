@@ -40,10 +40,15 @@ class AppSession extends ChangeNotifier {
   bool get isLoading => _loading;
   bool get isLoaded => _loaded;
   bool get isAdmin => _isAdmin;
-  bool get isUnlinkedUser => _loaded && !_isAdmin && _myResidences.isEmpty;
+  bool get isUnlinkedUser =>
+      _loaded &&
+      _client != null &&
+      _client?.auth.currentUser != null &&
+      !_isAdmin &&
+      _myResidences.isEmpty;
   String? get adminName => _adminName;
   String? get societyId => _societyId;
-  String get societyName => _societyName ?? _pendingJoinRequest?.societyName ?? 'My Society';
+  String get societyName => _societyName ?? _pendingJoinRequest?.societyName ?? 'Sunrise Heights';
   String? get societyCity => _societyCity;
   String? get societyAddress => _societyAddress;
   List<ResidentRecord> get myResidences => _myResidences;
@@ -122,13 +127,15 @@ class AppSession extends ChangeNotifier {
   Future<void> load() async {
     final client = _client;
     if (client == null) {
-      // Supabase not initialized (e.g., in widget tests) — treat as logged out
-      reset();
+      // Supabase not initialized (e.g., in widget tests) — treat as loaded logged out
+      _loading = false;
+      _loaded = true;
       return;
     }
     final user = client.auth.currentUser;
     if (user == null) {
-      reset();
+      _loading = false;
+      _loaded = true;
       return;
     }
 

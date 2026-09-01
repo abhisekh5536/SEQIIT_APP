@@ -44,22 +44,24 @@ class _JoinSocietyScreenState extends State<JoinSocietyScreen> {
   }
 
   void _initDefaults() {
-    final user = Supabase.instance.client.auth.currentUser;
-    if (user != null) {
-      final meta = user.userMetadata;
-      if (meta != null) {
-        final metaName = (meta['full_name'] ?? meta['name'] ?? meta['display_name']) as String?;
-        if (metaName != null && metaName.trim().isNotEmpty) {
-          _nameController.text = metaName.trim();
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user != null) {
+        final meta = user.userMetadata;
+        if (meta != null) {
+          final metaName = (meta['full_name'] ?? meta['name'] ?? meta['display_name']) as String?;
+          if (metaName != null && metaName.trim().isNotEmpty) {
+            _nameController.text = metaName.trim();
+          }
+        }
+        if (_nameController.text.isEmpty && user.email != null) {
+          final local = user.email!.split('@').first;
+          if (local.isNotEmpty) {
+            _nameController.text = local[0].toUpperCase() + local.substring(1);
+          }
         }
       }
-      if (_nameController.text.isEmpty && user.email != null) {
-        final local = user.email!.split('@').first;
-        if (local.isNotEmpty) {
-          _nameController.text = local[0].toUpperCase() + local.substring(1);
-        }
-      }
-    }
+    } catch (_) {}
   }
 
   @override
