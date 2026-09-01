@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../data/sample_data.dart';
 import '../models/society_models.dart';
 import '../services/app_session.dart';
+import '../services/notifications_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/home_widgets.dart';
 import 'join_society_screen.dart';
@@ -298,10 +300,8 @@ class HomeScreen extends StatelessWidget {
               ],
             ),
           ),
-          if (AppSession.instance.isAdmin) ...[
-            _notificationBell(context, p),
-            const SizedBox(width: 10),
-          ],
+          _notificationBell(context, p),
+          const SizedBox(width: 10),
           _avatar(context, p),
         ],
       ),
@@ -309,44 +309,53 @@ class HomeScreen extends StatelessWidget {
   }
 
   Widget _notificationBell(BuildContext context, AppPaletteData p) {
-    final pendingCount = AppSession.instance.pendingApprovalsCount;
+    return AnimatedBuilder(
+      animation: NotificationsService.instance,
+      builder: (context, _) {
+        final unreadCount = NotificationsService.instance.unreadCount;
 
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        IconButton(
-          onPressed: () => Navigator.pushNamed(context, '/admin-approvals'),
-          icon: const Icon(Icons.notifications_outlined),
-          style: IconButton.styleFrom(
-            backgroundColor: p.card,
-            side: BorderSide(color: p.hairline),
-            padding: const EdgeInsets.all(10),
-          ),
-        ),
-        if (pendingCount > 0)
-          Positioned(
-            top: 4,
-            right: 4,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-              decoration: BoxDecoration(
-                color: const Color(0xFFE68A00),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: p.card, width: 1.5),
-              ),
-              constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
-              child: Text(
-                '$pendingCount',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w800,
-                ),
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            IconButton(
+              onPressed: () {
+                HapticFeedback.lightImpact();
+                Navigator.pushNamed(context, '/notifications');
+              },
+              icon: const Icon(Icons.notifications_outlined),
+              tooltip: 'Notifications',
+              style: IconButton.styleFrom(
+                backgroundColor: p.card,
+                side: BorderSide(color: p.hairline),
+                padding: const EdgeInsets.all(10),
               ),
             ),
-          ),
-      ],
+            if (unreadCount > 0)
+              Positioned(
+                top: 4,
+                right: 4,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE68A00),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: p.card, width: 1.5),
+                  ),
+                  constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                  child: Text(
+                    '$unreadCount',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 

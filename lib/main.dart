@@ -5,14 +5,18 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'screens/admin_approvals_screen.dart';
 import 'screens/auth_screen.dart';
+import 'screens/complaints/complaints_root_screen.dart';
+import 'screens/complaints/raise_complaint_screen.dart';
 import 'screens/directory_screen.dart';
 import 'screens/flats_management_screen.dart';
 import 'screens/join_society_screen.dart';
 import 'screens/main_shell.dart';
 import 'screens/my_flat_screen.dart';
+import 'screens/notifications_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/app_session.dart';
+import 'services/notifications_service.dart';
 import 'theme/app_theme.dart';
 import 'theme/theme_controller.dart';
 
@@ -49,14 +53,18 @@ class _SocietyAppState extends State<SocietyApp> {
     try {
       if (Supabase.instance.client.auth.currentSession != null) {
         _loggedIn = true;
-        AppSession.instance.load();
+        AppSession.instance.load().then((_) {
+          NotificationsService.instance.init();
+        });
       }
       Supabase.instance.client.auth.onAuthStateChange.listen((data) {
         if (!mounted) return;
         final session = data.session;
         setState(() => _loggedIn = session != null);
         if (session != null) {
-          AppSession.instance.load();
+          AppSession.instance.load().then((_) {
+            NotificationsService.instance.init();
+          });
         } else {
           AppSession.instance.reset();
         }
@@ -85,9 +93,11 @@ class _SocietyAppState extends State<SocietyApp> {
             '/settings': (context) => SettingsScreen(
                   themeController: widget.themeController,
                 ),
+            '/notifications': (context) => const NotificationsScreen(),
             '/maintenance': (context) => const _FeatureScreen('Maintenance'),
             '/visitors': (context) => const _FeatureScreen('Visitors'),
-            '/complaints': (context) => const _FeatureScreen('Complaints'),
+            '/complaints': (context) => const ComplaintsRootScreen(),
+            '/complaints/raise': (context) => const RaiseComplaintScreen(),
             '/staff': (context) => const _FeatureScreen('Staff'),
             '/facilities': (context) => const _FeatureScreen('Facilities'),
             '/meetings': (context) => const _FeatureScreen('Meetings'),

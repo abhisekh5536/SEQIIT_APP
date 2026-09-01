@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../models/notification_model.dart';
 import '../services/app_session.dart';
+import '../services/notifications_service.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_controller.dart';
 
@@ -219,6 +221,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   context,
                   p,
                   children: [
+                    _navRow(
+                      context,
+                      p,
+                      icon: Icons.notifications_none_rounded,
+                      title: 'Notification History',
+                      subtitle: 'View recent activity alerts and reminders',
+                      trailingBadge: NotificationsService.instance.unreadCount > 0
+                          ? '${NotificationsService.instance.unreadCount}'
+                          : null,
+                      onTap: () => Navigator.pushNamed(context, '/notifications'),
+                    ),
+                    _divider(p),
+                    _retentionDropdownRow(context, p),
+                    _divider(p),
                     _switchRow(
                       context,
                       p,
@@ -671,6 +687,70 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _retentionDropdownRow(BuildContext context, AppPaletteData p) {
+    return AnimatedBuilder(
+      animation: NotificationsService.instance,
+      builder: (context, _) {
+        final current = NotificationsService.instance.retention;
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+          child: Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: p.primary.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: Icon(Icons.history_toggle_off_rounded, size: 19, color: p.primary),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('History Retention', style: Theme.of(context).textTheme.titleSmall),
+                    const SizedBox(height: 1),
+                    Text(
+                      'Keep bell notifications for',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 11.5),
+                    ),
+                  ],
+                ),
+              ),
+              DropdownButtonHideUnderline(
+                child: DropdownButton<NotificationHistoryRetention>(
+                  value: current,
+                  icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 18),
+                  items: NotificationHistoryRetention.values.map((ret) {
+                    return DropdownMenuItem(
+                      value: ret,
+                      child: Text(
+                        ret.label,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: p.textPrimary,
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: (newVal) {
+                    if (newVal != null) {
+                      HapticFeedback.selectionClick();
+                      NotificationsService.instance.setRetention(newVal);
+                    }
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
