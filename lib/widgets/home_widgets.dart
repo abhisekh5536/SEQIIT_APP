@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/society_models.dart';
 import '../theme/app_theme.dart';
+import 'hero_carousel.dart';
 
 /// Section heading with an optional trailing action.
 class SectionHeader extends StatelessWidget {
@@ -24,10 +25,7 @@ class SectionHeader extends StatelessWidget {
           child: Text(title, style: Theme.of(context).textTheme.titleMedium),
         ),
         if (actionLabel != null)
-          TextButton(
-            onPressed: onAction,
-            child: Text(actionLabel!),
-          ),
+          TextButton(onPressed: onAction, child: Text(actionLabel!)),
       ],
     );
   }
@@ -80,28 +78,11 @@ class HeroBalanceCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = AppTheme.paletteFor(Theme.of(context).brightness);
 
-    return Container(
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [p.heroStart, p.heroEnd],
-        ),
-        borderRadius: BorderRadius.circular(24),
-      ),
-      child: Stack(
-        children: [
-          _decorationCircle(context, p, Alignment.topRight, radius: 120),
-          _decorationCircle(context, p, Alignment.bottomLeft, radius: 90),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
-            child: duesCleared
-                ? _buildClearedState(context, p)
-                : _buildPendingState(context, p),
-          ),
-        ],
-      ),
+    return HeroCardShell(
+      accent: p.mint,
+      child: duesCleared
+          ? _buildClearedState(context, p)
+          : _buildPendingState(context, p),
     );
   }
 
@@ -114,6 +95,8 @@ class HeroBalanceCard extends StatelessWidget {
         Row(
           children: [
             _periodPill(textTheme),
+            const Spacer(),
+            _cardChip(context),
           ],
         ),
         const SizedBox(height: 18),
@@ -124,19 +107,42 @@ class HeroBalanceCard extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 4),
-        Text(
-          amount,
-          style: textTheme.headlineLarge?.copyWith(
-            color: Colors.white,
-            fontWeight: FontWeight.w800,
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text(
+            amount,
+            maxLines: 1,
+            style: textTheme.headlineLarge?.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
           ),
         ),
         const SizedBox(height: 4),
-        Text(
-          dueCaption,
-          style: textTheme.bodySmall?.copyWith(
-            color: Colors.white.withValues(alpha: 0.8),
-          ),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                dueCaption,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: textTheme.bodySmall?.copyWith(
+                  color: Colors.white.withValues(alpha: 0.8),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              'SH·CARD',
+              style: textTheme.labelSmall?.copyWith(
+                color: Colors.white.withValues(alpha: 0.5),
+                letterSpacing: 1.6,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 18),
         Row(
@@ -183,8 +189,11 @@ class HeroBalanceCard extends StatelessWidget {
             color: Colors.white.withValues(alpha: 0.2),
             shape: BoxShape.circle,
           ),
-          child: const Icon(Icons.task_alt_rounded,
-              size: 26, color: Colors.white),
+          child: const Icon(
+            Icons.task_alt_rounded,
+            size: 26,
+            color: Colors.white,
+          ),
         ),
         const SizedBox(height: 12),
         Text(
@@ -196,8 +205,9 @@ class HeroBalanceCard extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          nextInvoiceCaption ??
-              'Your maintenance account has no pending dues.',
+          nextInvoiceCaption ?? 'Your maintenance account has no pending dues.',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: textTheme.bodySmall?.copyWith(
             color: Colors.white.withValues(alpha: 0.8),
           ),
@@ -258,12 +268,39 @@ class HeroBalanceCard extends StatelessWidget {
     );
   }
 
+  Widget _cardChip(BuildContext context) {
+    return Container(
+      width: 34,
+      height: 26,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFFD4AF37).withValues(alpha: 0.7),
+            const Color(0xFFF5E6A3).withValues(alpha: 0.5),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Align(
+        alignment: Alignment.centerRight,
+        child: Container(
+          width: 10,
+          height: 10,
+          margin: const EdgeInsets.only(right: 4),
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: Colors.white.withValues(alpha: 0.3),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _periodPill(TextTheme textTheme) {
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 10,
-        vertical: 5,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.18),
         borderRadius: BorderRadius.circular(20),
@@ -313,25 +350,6 @@ class HeroBalanceCard extends StatelessWidget {
       child: const Text('Ledger'),
     );
   }
-
-  Widget _decorationCircle(
-    BuildContext context,
-    AppPaletteData p,
-    Alignment alignment, {
-    required double radius,
-  }) {
-    return Align(
-      alignment: alignment,
-      child: Container(
-        width: radius * 2,
-        height: radius * 2,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: p.mint.withValues(alpha: 0.12),
-        ),
-      ),
-    );
-  }
 }
 
 /// Compact labelled quick actions (Revolut-style action bar).
@@ -348,48 +366,78 @@ class QuickActionRail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = AppTheme.paletteFor(Theme.of(context).brightness);
+    final textTheme = Theme.of(context).textTheme;
 
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 14),
+      padding: const EdgeInsets.fromLTRB(4, 12, 4, 10),
       decoration: BoxDecoration(
         color: p.card,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(22),
         border: Border.all(color: p.hairline),
+        boxShadow: [
+          BoxShadow(
+            color: p.shadow.withValues(alpha: 0.05),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
       ),
       child: Row(
         children: [
           for (var i = 0; i < actions.length; i++) ...[
-            if (i > 0) Container(width: 1, height: 40, color: p.hairline),
+            if (i > 0)
+              Container(
+                width: 1,
+                height: 44,
+                margin: const EdgeInsets.symmetric(vertical: 4),
+                color: p.hairline,
+              ),
             Expanded(
-              child: InkWell(
-                borderRadius: BorderRadius.circular(12),
-                onTap: () => onSelected(actions[i]),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      CircleAvatar(
-                        radius: 18,
-                        backgroundColor: p.primary.withValues(alpha: 0.12),
-                        child: Icon(
-                          actions[i].icon,
-                          size: 20,
-                          color: p.primary,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        actions[i].label,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                              color: p.textSecondary,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w500,
+              child: Material(
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(14),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(14),
+                  onTap: () => onSelected(actions[i]),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 38,
+                          height: 38,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                p.primary.withValues(alpha: 0.16),
+                                p.secondary.withValues(alpha: 0.16),
+                              ],
                             ),
-                      ),
-                    ],
+                            borderRadius: BorderRadius.circular(12.5),
+                          ),
+                          child: Icon(
+                            actions[i].icon,
+                            size: 19,
+                            color: p.primary,
+                          ),
+                        ),
+                        const SizedBox(height: 7),
+                        Text(
+                          actions[i].label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: textTheme.labelSmall?.copyWith(
+                            color: p.textSecondary,
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 0.1,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -401,11 +449,15 @@ class QuickActionRail extends StatelessWidget {
   }
 }
 
-/// Small single-metric stat card.
+/// Single-metric stat card: a quiet icon chip, the number doing the talking,
+/// and an optional contextual hint line that grounds it in a moment in time.
 class StatCard extends StatelessWidget {
   final IconData icon;
   final String value;
   final String label;
+
+  /// Small trailing caption, e.g. 'since 6 AM' or '+2 this week'.
+  final String? hint;
   final Color accent;
   final VoidCallback? onTap;
 
@@ -415,43 +467,96 @@ class StatCard extends StatelessWidget {
     required this.value,
     required this.label,
     required this.accent,
+    this.hint,
     this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    Widget card = Surface(
-      padding: const EdgeInsets.all(14),
-      radius: 18,
+    final p = AppTheme.paletteFor(Theme.of(context).brightness);
+    final textTheme = Theme.of(context).textTheme;
+
+    Widget card = Container(
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 13),
+      decoration: BoxDecoration(
+        color: p.card,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: p.hairline),
+        boxShadow: [
+          BoxShadow(
+            color: p.shadow.withValues(alpha: 0.05),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+          // Accent glow: the card's own hue bleeding out beneath it.
+          BoxShadow(
+            color: accent.withValues(alpha: 0.10),
+            blurRadius: 22,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              color: accent.withValues(alpha: 0.14),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, size: 20, color: accent),
+          Row(
+            children: [
+              Container(
+                width: 30,
+                height: 30,
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.13),
+                  borderRadius: BorderRadius.circular(9.5),
+                ),
+                child: Icon(icon, size: 17, color: accent),
+              ),
+              const Spacer(),
+              Icon(
+                Icons.chevron_right_rounded,
+                size: 18,
+                color: p.textTertiary.withValues(alpha: 0.55),
+              ),
+            ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           Text(
             value,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
+            style: textTheme.headlineSmall?.copyWith(
+              fontSize: 23,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.5,
+              height: 1.0,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
           ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 3),
           Text(
             label,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.bodySmall,
+            style: textTheme.labelSmall?.copyWith(
+              color: p.textSecondary,
+              fontSize: 11.5,
+              letterSpacing: 0.1,
+              fontWeight: FontWeight.w600,
+            ),
           ),
+          if (hint != null) ...[
+            const SizedBox(height: 2),
+            Text(
+              hint!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: textTheme.labelSmall?.copyWith(
+                color: p.textTertiary,
+                fontSize: 10.5,
+                letterSpacing: 0.1,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -468,15 +573,29 @@ class StatCard extends StatelessWidget {
 }
 
 /// Service entry tile in the services grid.
+///
+/// Reads like a shortcut into a working module, not a launcher icon: icon
+/// chip inline with the title, one honest supporting line, and — where the
+/// data supports it — a live count chip on the trailing edge.
 class ServiceTile extends StatelessWidget {
   final SocietyService service;
   final Color accent;
 
-  const ServiceTile({super.key, required this.service, required this.accent});
+  /// Small live badge, e.g. '3' open items. Rendered as a filled dot-chip
+  /// when non-null and non-empty; omitted for quiet services.
+  final String? badge;
+
+  const ServiceTile({
+    super.key,
+    required this.service,
+    required this.accent,
+    this.badge,
+  });
 
   @override
   Widget build(BuildContext context) {
     final p = AppTheme.paletteFor(Theme.of(context).brightness);
+    final textTheme = Theme.of(context).textTheme;
 
     return Material(
       color: p.card,
@@ -488,36 +607,79 @@ class ServiceTile extends StatelessWidget {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
             border: Border.all(color: p.hairline),
+            boxShadow: [
+              BoxShadow(
+                color: p.shadow.withValues(alpha: 0.05),
+                blurRadius: 16,
+                offset: const Offset(0, 6),
+              ),
+              BoxShadow(
+                color: accent.withValues(alpha: 0.08),
+                blurRadius: 20,
+                offset: const Offset(0, 5),
+              ),
+            ],
           ),
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: accent.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(13),
-                ),
-                child: Icon(service.icon, size: 22, color: accent),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: accent.withValues(alpha: 0.13),
+                      borderRadius: BorderRadius.circular(11.5),
+                    ),
+                    child: Icon(service.icon, size: 20, color: accent),
+                  ),
+                  const Spacer(),
+                  if (badge != null && badge!.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 7,
+                        vertical: 2.5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: accent.withValues(alpha: 0.13),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        badge!,
+                        style: textTheme.labelSmall?.copyWith(
+                          color: accent,
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.2,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                    ),
+                ],
               ),
-              const SizedBox(height: 12),
+              const Spacer(),
               Text(
                 service.title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.titleSmall,
+                style: textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  height: 1.2,
+                ),
               ),
-              const SizedBox(height: 2),
+              const SizedBox(height: 3),
               Text(
                 service.subtitle,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      fontSize: 11.5,
-                    ),
+                style: textTheme.bodySmall?.copyWith(
+                  fontSize: 11.5,
+                  height: 1.3,
+                  color: p.textTertiary,
+                ),
               ),
             ],
           ),
@@ -632,8 +794,18 @@ class NoticeCard extends StatelessWidget {
     if (diff.inDays < 1) return '${diff.inHours}h ago';
     if (diff.inDays < 7) return '${diff.inDays}d ago';
     final months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     return '${date.day} ${months[date.month - 1]}';
   }

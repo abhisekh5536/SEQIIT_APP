@@ -34,10 +34,14 @@ void main() {
     expect(find.text('Visitors today'), findsOneWidget);
     expect(find.text('Open requests'), findsOneWidget);
 
-    final scrollable = find.descendant(
-      of: find.byType(HomeScreen),
-      matching: find.byType(Scrollable),
-    );
+    // The hero carousel nests its own PageView scrollable; .first keeps the
+    // outer page scroll (tree order puts ancestors before descendants).
+    final scrollable = find
+        .descendant(
+          of: find.byType(HomeScreen),
+          matching: find.byType(Scrollable),
+        )
+        .first;
     await tester.scrollUntilVisible(
       find.text('Services'),
       300,

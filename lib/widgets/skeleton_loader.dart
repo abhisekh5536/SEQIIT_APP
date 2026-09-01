@@ -157,11 +157,24 @@ class HomeScreenSkeleton extends StatelessWidget {
               ),
               const SizedBox(height: 20),
 
-              // Hero Balance Card Placeholder
+              // Hero carousel placeholder
               const SkeletonBox(
                 width: double.infinity,
-                height: 190,
+                height: 244,
                 borderRadius: 24,
+              ),
+              const SizedBox(height: 12),
+              const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  SkeletonBox(width: 18, height: 6, borderRadius: 3),
+                  SizedBox(width: 6),
+                  SkeletonBox(width: 6, height: 6, borderRadius: 3),
+                  SizedBox(width: 6),
+                  SkeletonBox(width: 6, height: 6, borderRadius: 3),
+                  SizedBox(width: 6),
+                  SkeletonBox(width: 6, height: 6, borderRadius: 3),
+                ],
               ),
               const SizedBox(height: 14),
 
