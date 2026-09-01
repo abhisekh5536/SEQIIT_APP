@@ -287,44 +287,74 @@ class _AdminHelpdeskScreenState extends State<AdminHelpdeskScreen> {
   }
 
   Widget _buildStatsRow(AppPaletteData p, TextTheme textTheme) {
+    final entries = <_QueueStat>[
+      _QueueStat('Open', _stats.open, const Color(0xFF64748B)),
+      _QueueStat('In Progress', _stats.inProgress, const Color(0xFFD97706)),
+      _QueueStat('Reopened', _stats.reopened, const Color(0xFFDC2626)),
+      _QueueStat('Resolved', _stats.resolved, const Color(0xFF2563EB)),
+      if (_stats.securityCount > 0)
+        _QueueStat('Security', _stats.securityCount, const Color(0xFFB91C1C)),
+    ];
+
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
         children: [
-          _buildStatCard('Open', _stats.open.toString(), const Color(0xFF64748B), const Color(0xFFF1F5F9)),
-          const SizedBox(width: 8),
-          _buildStatCard('In Progress', _stats.inProgress.toString(), const Color(0xFFD97706), const Color(0xFFFEF3C7)),
-          const SizedBox(width: 8),
-          _buildStatCard('Reopened', _stats.reopened.toString(), const Color(0xFFDC2626), const Color(0xFFFEE2E2)),
-          const SizedBox(width: 8),
-          _buildStatCard('Resolved', _stats.resolved.toString(), const Color(0xFF2563EB), const Color(0xFFDBEAFE)),
-          if (_stats.securityCount > 0) ...[
-            const SizedBox(width: 8),
-            _buildStatCard('Security ⚠', _stats.securityCount.toString(), const Color(0xFFB91C1C), const Color(0xFFFFE4E6)),
+          for (var i = 0; i < entries.length; i++) ...[
+            if (i > 0) const SizedBox(width: 8),
+            _buildStatCard(p, entries[i]),
           ],
         ],
       ),
     );
   }
 
-  Widget _buildStatCard(String label, String value, Color fg, Color bg) {
+  Widget _buildStatCard(AppPaletteData p, _QueueStat stat) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      width: 106,
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 11),
       decoration: BoxDecoration(
-        color: bg,
+        color: p.card,
         borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: p.hairline),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            value,
-            style: TextStyle(color: fg, fontWeight: FontWeight.w800, fontSize: 16),
+          Row(
+            children: [
+              Container(
+                width: 7,
+                height: 7,
+                decoration: BoxDecoration(color: stat.color, shape: BoxShape.circle),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  stat.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: p.textSecondary,
+                    height: 1.1,
+                  ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 6),
+          const SizedBox(height: 7),
           Text(
-            label,
-            style: TextStyle(color: fg, fontWeight: FontWeight.w700, fontSize: 12),
+            '${stat.value}',
+            style: TextStyle(
+              fontSize: 19,
+              fontWeight: FontWeight.w800,
+              color: p.textPrimary,
+              letterSpacing: -0.4,
+              height: 1.05,
+            ),
           ),
         ],
       ),
@@ -655,4 +685,12 @@ class _AdminHelpdeskScreenState extends State<AdminHelpdeskScreen> {
       ),
     );
   }
+}
+
+class _QueueStat {
+  final String label;
+  final int value;
+  final Color color;
+
+  const _QueueStat(this.label, this.value, this.color);
 }
