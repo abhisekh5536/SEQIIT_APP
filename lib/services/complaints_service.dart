@@ -30,10 +30,21 @@ class ComplaintsService {
   ComplaintsService._();
   static final ComplaintsService instance = ComplaintsService._();
 
-  SupabaseClient get _client => Supabase.instance.client;
+  SupabaseClient? get _safeClient {
+    try {
+      return Supabase.instance.client;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  SupabaseClient get _client =>
+      _safeClient ?? SupabaseClient('http://localhost', 'anon');
 
   /// Fetches complaints raised by the current resident across all their residences.
   Future<List<ComplaintRecord>> fetchResidentComplaints() async {
+    if (_safeClient == null) return [];
+
     final session = AppSession.instance;
     final residentIds = session.myResidences.map((r) => r.id).toList();
 
@@ -64,6 +75,7 @@ class ComplaintsService {
     String? searchQuery,
     String sortBy = 'newest', // 'newest' | 'oldest' | 'priority'
   }) async {
+    if (_safeClient == null) return [];
     final societyId = AppSession.instance.societyId;
     if (societyId == null) return [];
 

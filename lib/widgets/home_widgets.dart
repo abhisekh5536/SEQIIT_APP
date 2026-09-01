@@ -407,6 +407,7 @@ class StatCard extends StatelessWidget {
   final String value;
   final String label;
   final Color accent;
+  final VoidCallback? onTap;
 
   const StatCard({
     super.key,
@@ -414,11 +415,12 @@ class StatCard extends StatelessWidget {
     required this.value,
     required this.label,
     required this.accent,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Surface(
+    Widget card = Surface(
       padding: const EdgeInsets.all(14),
       radius: 18,
       child: Column(
@@ -453,6 +455,15 @@ class StatCard extends StatelessWidget {
         ],
       ),
     );
+
+    if (onTap != null) {
+      return InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: card,
+      );
+    }
+    return card;
   }
 }
 

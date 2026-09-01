@@ -71,6 +71,7 @@ class AppNotification {
 
   bool get isComplaint => entityType == 'complaint' || type.startsWith('complaint');
   bool get isApproval => entityType == 'join_request' || type.startsWith('join_request');
+  bool get isNotice => entityType == 'notice' || type == 'notice';
 
   IconData get icon {
     switch (type) {

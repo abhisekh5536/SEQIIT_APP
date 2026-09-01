@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:society_management/main.dart';
 import 'package:society_management/screens/home_screen.dart';
 import 'package:society_management/screens/main_shell.dart';
+import 'package:society_management/screens/notices_screen.dart';
 import 'package:society_management/theme/app_theme.dart';
 import 'package:society_management/theme/theme_controller.dart';
 import 'package:society_management/widgets/home_widgets.dart';
@@ -29,7 +30,9 @@ void main() {
     expect(find.text('SUNRISE HEIGHTS'), findsOneWidget);
     expect(find.textContaining('Saurabh'), findsOneWidget);
     expect(find.text('₹4,850.00'), findsOneWidget);
-    expect(find.text('Maintenance due'), findsOneWidget);
+    expect(find.text('All notices'), findsOneWidget);
+    expect(find.text('Visitors today'), findsOneWidget);
+    expect(find.text('Open requests'), findsOneWidget);
 
     final scrollable = find.descendant(
       of: find.byType(HomeScreen),
@@ -48,7 +51,7 @@ void main() {
       scrollable: scrollable,
     );
     await tester.pumpAndSettle();
-    expect(find.text('Society maintenance drive'), findsOneWidget);
+    expect(find.text('No active notices right now'), findsOneWidget);
   });
 
   testWidgets('Settings tab toggles between light and dark palette',
@@ -57,7 +60,7 @@ void main() {
 
     expect(_scaffoldBackground(tester), AppPalette.light.canvas);
 
-    await tester.tap(find.text('Settings'));
+    await tester.tap(find.byIcon(Icons.tune_outlined));
     await tester.pumpAndSettle();
     expect(find.text('Theme'), findsOneWidget);
 

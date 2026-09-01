@@ -64,6 +64,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       return;
     }
 
+    if (entityType == 'notice' || notification.type == 'notice') {
+      Navigator.pushNamed(context, '/notices');
+      return;
+    }
+
     if (notification.route != null && notification.route!.isNotEmpty) {
       Navigator.pushNamed(context, notification.route!);
     }
@@ -75,6 +80,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return list.where((n) => !n.isRead).toList();
       case 'complaints':
         return list.where((n) => n.isComplaint).toList();
+      case 'notices':
+        return list.where((n) => n.isNotice).toList();
       case 'approvals':
         return list.where((n) => n.isApproval).toList();
       default:
@@ -183,6 +190,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                   'Complaints',
                                   'complaints',
                                   allList.where((n) => n.isComplaint).length,
+                                  p,
+                                ),
+                                const SizedBox(width: 8),
+                                _buildFilterChip(
+                                  'Notices',
+                                  'notices',
+                                  allList.where((n) => n.isNotice).length,
                                   p,
                                 ),
                                 if (AppSession.instance.isAdmin) ...[

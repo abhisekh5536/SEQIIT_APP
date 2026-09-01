@@ -103,13 +103,29 @@ class NotificationsService extends ChangeNotifier {
         debugPrint('notifications table not available or error: $dbError');
       }
 
-      // 2. Synthesize fallback notifications from complaints & join requests if table is empty
-      if (fetched.isEmpty) {
-        fetched = await _synthesizeNotificationsFallback(client, session, cutoff);
+      // 2. Synthesize/supplement notifications from complaints & join requests
+      final fallbackList = await _synthesizeNotificationsFallback(client, session, cutoff);
+
+      // Merge and deduplicate
+      final Set<String> seenEntityKeys = {};
+      final List<AppNotification> merged = [];
+
+      for (final n in fetched) {
+        final key = '${n.entityType ?? ''}_${n.entityId ?? ''}_${n.type}';
+        if (key.length > 2) seenEntityKeys.add(key);
+        merged.add(n);
+      }
+
+      for (final fn in fallbackList) {
+        final key = '${fn.entityType ?? ''}_${fn.entityId ?? ''}_${fn.type}';
+        if (!seenEntityKeys.contains(key)) {
+          merged.add(fn);
+          if (key.length > 2) seenEntityKeys.add(key);
+        }
       }
 
       // Apply locally stored read states
-      _notifications = fetched.map((n) {
+      _notifications = merged.map((n) {
         if (_locallyReadIds.contains(n.id)) {
           return n.copyWith(isRead: true);
         }
@@ -183,21 +199,39 @@ class NotificationsService extends ChangeNotifier {
           final noteHash = (noteText != null && noteText.isNotEmpty) ? noteText.hashCode.abs() : 0;
           final updatedDt = DateTime.tryParse(c['updated_at']?.toString() ?? '') ?? createdAt;
 
+          String titleText;
+          String bodyText;
+          String notifType;
+
+          if (status == 'resolved') {
+            titleText = 'Complaint Resolved 🛠️: $title';
+            bodyText = noteText != null && noteText.isNotEmpty
+                ? 'Admin Note: $noteText'
+                : 'The society office marked this as resolved.';
+            notifType = 'complaint_resolved';
+          } else if (status == 'closed') {
+            titleText = 'Complaint Closed ✅: $title';
+            bodyText = 'This complaint was closed. Tap to view history.';
+            notifType = 'complaint_closed';
+          } else if (status == 'in_progress') {
+            titleText = 'Work In Progress ⏳: $title';
+            bodyText = noteText != null && noteText.isNotEmpty
+                ? 'Admin Note: $noteText'
+                : 'Work has begun on your complaint.';
+            notifType = 'complaint_updated';
+          } else {
+            titleText = 'Complaint: $title';
+            bodyText = 'Status: ${status.replaceAll('_', ' ').toUpperCase()}';
+            notifType = 'complaint_created';
+          }
+
           list.add(AppNotification(
             id: 'c_res_${id}_${status}_$noteHash',
             societyId: societyId,
             targetRole: 'resident',
-            title: status == 'resolved'
-                ? 'Complaint Resolved: $title'
-                : (status == 'in_progress'
-                    ? 'Work In Progress: $title'
-                    : 'Complaint Status: ${status.replaceAll('_', ' ').toUpperCase()}'),
-            body: noteText != null && noteText.isNotEmpty
-                ? 'Admin Note: $noteText'
-                : (status == 'resolved'
-                    ? 'The society office marked this as resolved. Tap to verify.'
-                    : 'Tap to view updates and resolution timeline.'),
-            type: status == 'resolved' ? 'complaint_resolved' : 'complaint_updated',
+            title: titleText,
+            body: bodyText,
+            type: notifType,
             entityType: 'complaint',
             entityId: id,
             route: '/complaints',

@@ -12,6 +12,8 @@ import 'screens/flats_management_screen.dart';
 import 'screens/join_society_screen.dart';
 import 'screens/main_shell.dart';
 import 'screens/my_flat_screen.dart';
+import 'screens/notices/create_edit_notice_screen.dart';
+import 'screens/notices_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/settings_screen.dart';
@@ -101,7 +103,10 @@ class _SocietyAppState extends State<SocietyApp> {
             '/staff': (context) => const _FeatureScreen('Staff'),
             '/facilities': (context) => const _FeatureScreen('Facilities'),
             '/meetings': (context) => const _FeatureScreen('Meetings'),
-            '/notices': (context) => const _FeatureScreen('Notices'),
+            '/notices': (context) => const NoticesScreen(),
+            '/notices/create': (context) => const _AdminGate(
+                  child: CreateEditNoticeScreen(),
+                ),
             '/my-flat': (context) => const MyFlatScreen(),
             '/profile': (context) => const ProfileScreen(),
             '/flats-management': (context) => const FlatsManagementScreen(),
