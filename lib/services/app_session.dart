@@ -48,7 +48,7 @@ class AppSession extends ChangeNotifier {
       _myResidences.isEmpty;
   String? get adminName => _adminName;
   String? get societyId => _societyId;
-  String get societyName => _societyName ?? _pendingJoinRequest?.societyName ?? 'Sunrise Heights';
+  String get societyName => _societyName ?? _pendingJoinRequest?.societyName ?? (_loaded ? 'My Society' : '');
   String? get societyCity => _societyCity;
   String? get societyAddress => _societyAddress;
   List<ResidentRecord> get myResidences => _myResidences;

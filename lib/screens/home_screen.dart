@@ -47,148 +47,164 @@ class _HomeScreenState extends State<HomeScreen> {
     ),
   ];
 
-  /// Service tiles. Subtitles read like a product team wrote them — plain
-  /// statements of what lives inside each module — and the two that carry
-  /// real signal (approvals, helpdesk) surface the live open count.
-  List<SocietyService> _servicesFor(bool isAdmin) {
-    final open = _openRequestsCount;
-    if (isAdmin) {
-      return [
-        SocietyService(
-          title: 'Approvals',
-          subtitle: open == 0
-              ? 'Nothing waiting on you'
-              : 'Waiting on your sign-off',
-          icon: Icons.how_to_reg_outlined,
-          route: '/admin-approvals',
-        ),
-        const SocietyService(
-          title: 'Directory',
-          subtitle: 'Every flat & resident',
-          icon: Icons.contacts_outlined,
-          route: '/directory',
-        ),
-        const SocietyService(
-          title: 'Flats & Blocks',
-          subtitle: 'Occupancy & ownership',
-          icon: Icons.domain_outlined,
-          route: '/flats-management',
-        ),
-        const SocietyService(
-          title: 'Maintenance',
-          subtitle: 'Bills, dues & receipts',
-          icon: Icons.payments_outlined,
-          route: '/maintenance',
-        ),
-        const SocietyService(
-          title: 'Visitors',
-          subtitle: 'Gate log & passes',
-          icon: Icons.person_pin_outlined,
-          route: '/visitors',
-        ),
-        SocietyService(
-          title: 'Complaints',
-          subtitle: open == 0
-              ? 'Helpdesk is quiet'
-              : 'Being tracked by your team',
-          icon: Icons.report_problem_outlined,
-          route: '/complaints',
-        ),
-        const SocietyService(
-          title: 'Staff',
-          subtitle: 'Guards, maids & drivers',
-          icon: Icons.engineering_outlined,
-          route: '/staff',
-        ),
-        const SocietyService(
-          title: 'Facilities',
-          subtitle: 'Slots, deposits & rules',
-          icon: Icons.event_seat_outlined,
-          route: '/facilities',
-        ),
-        const SocietyService(
-          title: 'Meetings',
-          subtitle: 'AGMs & minutes',
-          icon: Icons.groups_outlined,
-          route: '/meetings',
-        ),
-        const SocietyService(
-          title: 'Notices',
-          subtitle: 'From the committee',
-          icon: Icons.campaign_outlined,
-          route: '/notices',
-        ),
-      ];
-    }
-    return [
-      const SocietyService(
-        title: 'Maintenance',
-        subtitle: 'Pay dues & view receipts',
-        icon: Icons.payments_outlined,
-        route: '/maintenance',
-      ),
-      const SocietyService(
-        title: 'Visitors',
-        subtitle: 'Guests & daily help',
-        icon: Icons.qr_code_2_outlined,
-        route: '/visitors',
-      ),
-      SocietyService(
-        title: 'Helpdesk',
-        subtitle: open == 0
-            ? 'Plumbing, electrical & more'
-            : 'One of yours is being fixed',
-        icon: Icons.support_agent_outlined,
-        route: '/complaints',
-      ),
-      const SocietyService(
-        title: 'My Flat',
-        subtitle: 'Members, vehicles & docs',
-        icon: Icons.home_outlined,
-        route: '/my-flat',
-      ),
-      const SocietyService(
-        title: 'Facilities',
-        subtitle: 'Hall, pool & gym slots',
-        icon: Icons.event_seat_outlined,
-        route: '/facilities',
-      ),
-      const SocietyService(
-        title: 'Vehicles',
-        subtitle: 'Parking slot & stickers',
-        icon: Icons.directions_car_outlined,
-        route: '/profile',
-      ),
-      const SocietyService(
-        title: 'Security',
-        subtitle: 'Guard numbers & SOS',
-        icon: Icons.shield_outlined,
-        route: '/settings',
-      ),
-    ];
-  }
-
-  /// Which service tiles carry a live count badge. Only surfaces signal —
-  /// never decoration — so most tiles stay clean.
-  String? _badgeFor(String title) {
-    if (_openRequestsCount == 0) return null;
-    if (AppSession.instance.isAdmin) {
-      if (title == 'Approvals' || title == 'Complaints') {
-        return '$_openRequestsCount';
-      }
-    } else if (title == 'Helpdesk') {
-      return '$_openRequestsCount';
-    }
-    return null;
-  }
+  static List<SocietyService> _servicesFor(bool isAdmin) => isAdmin
+      ? [
+          const SocietyService(
+            title: 'Approvals',
+            subtitle: 'Resident requests',
+            icon: Icons.how_to_reg_outlined,
+            route: '/admin-approvals',
+            colorIndex: 0,
+          ),
+          const SocietyService(
+            title: 'Directory',
+            subtitle: 'Residents list',
+            icon: Icons.contacts_outlined,
+            route: '/directory',
+            colorIndex: 7,
+          ),
+          const SocietyService(
+            title: 'Flats & Blocks',
+            subtitle: 'Units register',
+            icon: Icons.domain_outlined,
+            route: '/flats-management',
+            colorIndex: 3,
+          ),
+          const SocietyService(
+            title: 'Maintenance',
+            subtitle: 'Dues & billing',
+            icon: Icons.payments_outlined,
+            route: '/maintenance',
+            colorIndex: 0,
+          ),
+          const SocietyService(
+            title: 'Visitors',
+            subtitle: 'Gate & security logs',
+            icon: Icons.qr_code_2_outlined,
+            route: '/visitors',
+            colorIndex: 1,
+          ),
+          const SocietyService(
+            title: 'Complaints',
+            subtitle: 'Track & resolve',
+            icon: Icons.support_agent_outlined,
+            route: '/complaints',
+            colorIndex: 2,
+          ),
+          const SocietyService(
+            title: 'Staff',
+            subtitle: 'Roster & guards',
+            icon: Icons.engineering_outlined,
+            route: '/staff',
+            colorIndex: 1,
+          ),
+          const SocietyService(
+            title: 'Facilities',
+            subtitle: 'Hall, gym & bookings',
+            icon: Icons.event_seat_outlined,
+            route: '/facilities',
+            colorIndex: 4,
+          ),
+          const SocietyService(
+            title: 'Vehicles',
+            subtitle: 'Parking & allotment',
+            icon: Icons.directions_car_outlined,
+            route: '/admin-vehicles',
+            colorIndex: 5,
+          ),
+          const SocietyService(
+            title: 'Meetings',
+            subtitle: 'AGM & minutes',
+            icon: Icons.groups_outlined,
+            route: '/meetings',
+            colorIndex: 3,
+          ),
+          const SocietyService(
+            title: 'Notices',
+            subtitle: 'Board circulars',
+            icon: Icons.campaign_outlined,
+            route: '/notices',
+            colorIndex: 6,
+          ),
+        ]
+      : [
+          const SocietyService(
+            title: 'Maintenance',
+            subtitle: 'Pay dues & ledger',
+            icon: Icons.payments_outlined,
+            route: '/maintenance',
+            colorIndex: 0,
+          ),
+          const SocietyService(
+            title: 'Visitors',
+            subtitle: 'Gate pass & guests',
+            icon: Icons.qr_code_2_outlined,
+            route: '/visitors',
+            colorIndex: 1,
+          ),
+          const SocietyService(
+            title: 'Helpdesk',
+            subtitle: 'Raise complaints',
+            icon: Icons.support_agent_outlined,
+            route: '/complaints',
+            colorIndex: 2,
+          ),
+          const SocietyService(
+            title: 'My Flat',
+            subtitle: 'Family & household',
+            icon: Icons.home_outlined,
+            route: '/my-flat',
+            colorIndex: 3,
+          ),
+          const SocietyService(
+            title: 'Facilities',
+            subtitle: 'Club, pool & gym',
+            icon: Icons.event_seat_outlined,
+            route: '/facilities',
+            colorIndex: 4,
+          ),
+          const SocietyService(
+            title: 'Vehicles',
+            subtitle: 'Parking & tags',
+            icon: Icons.directions_car_outlined,
+            route: '/profile',
+            colorIndex: 5,
+          ),
+          const SocietyService(
+            title: 'Notices',
+            subtitle: 'Board circulars',
+            icon: Icons.campaign_outlined,
+            route: '/notices',
+            colorIndex: 6,
+          ),
+          const SocietyService(
+            title: 'Security',
+            subtitle: 'Emergency contacts',
+            icon: Icons.shield_outlined,
+            route: '/settings',
+            colorIndex: 7,
+          ),
+        ];
 
   List<NoticeRecord> _liveNotices = [];
   int _allNoticesCount = 0;
   int _unreadNoticesCount = 0;
   int _openRequestsCount = 0;
-  // Gate log for today. Demo value until the visitors module feeds real data.
   final int _visitorsToday = 12;
-  bool _isLoadingHome = false;
+  bool _isLoadingHome = true;
+
+  String? _badgeFor(String title) {
+    return switch (title.toLowerCase()) {
+      'notices' => _unreadNoticesCount > 0 ? '$_unreadNoticesCount new' : null,
+      'approvals' => AppSession.instance.pendingApprovalsCount > 0
+          ? '${AppSession.instance.pendingApprovalsCount}'
+          : null,
+      'complaints' || 'helpdesk' =>
+        _openRequestsCount > 0 ? '$_openRequestsCount open' : null,
+      'visitors' => '$_visitorsToday today',
+      _ => null,
+    };
+  }
 
   @override
   void initState() {
@@ -269,8 +285,10 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (context, _) {
         final session = AppSession.instance;
 
-        if (!session.isLoaded && _isLoadingHome) {
-          return const Scaffold(body: HomeScreenSkeleton());
+        if (!session.isLoaded || _isLoadingHome) {
+          return const Scaffold(
+            body: HomeScreenSkeleton(),
+          );
         }
 
         // If user is unlisted (neither admin nor linked resident), show claim flow
@@ -319,14 +337,19 @@ class _HomeScreenState extends State<HomeScreen> {
                 SliverPadding(
                   padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
                   sliver: SliverGrid(
-                    delegate: SliverChildBuilderDelegate((context, index) {
-                      final service = services[index];
-                      return ServiceTile(
-                        service: service,
-                        accent: p.featureColor(index),
-                        badge: _badgeFor(service.title),
-                      );
-                    }, childCount: services.length),
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                        final service = services[index];
+                        return ServiceTile(
+                          service: service,
+                          accent: service.colorIndex != null
+                              ? p.featureColor(service.colorIndex!)
+                              : p.featureColor(index),
+                          badge: _badgeFor(service.title),
+                        );
+                      },
+                      childCount: services.length,
+                    ),
                     gridDelegate:
                         const SliverGridDelegateWithFixedCrossAxisCount(
                           crossAxisCount: 2,
@@ -642,17 +665,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildHeader(BuildContext context, AppPaletteData p) {
     final textTheme = Theme.of(context).textTheme;
-    // Resolve display name from session, fallback to Saurabh for demo/tests where no auth
-    String displayName;
-    String flatLine;
-    try {
-      final session = AppSession.instance;
-      displayName = session.displayName ?? 'Saurabh';
-      flatLine = session.flatSubtitle ?? 'Tower B · Flat 204 · Sector 21';
-    } catch (_) {
-      displayName = 'Saurabh';
-      flatLine = 'Tower B · Flat 204 · Sector 21';
-    }
+    final session = AppSession.instance;
+    final displayName = session.displayName ?? (session.isAdmin ? 'Admin' : 'Resident');
+    final flatLine = session.flatSubtitle ??
+        (session.isAdmin
+            ? 'Society Administration'
+            : (session.societyCity != null && session.societyCity!.isNotEmpty
+                ? session.societyCity!
+                : ''));
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),

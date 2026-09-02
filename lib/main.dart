@@ -4,6 +4,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'screens/admin_approvals_screen.dart';
+import 'screens/admin_vehicles_screen.dart';
 import 'screens/auth_screen.dart';
 import 'screens/complaints/complaints_root_screen.dart';
 import 'screens/complaints/raise_complaint_screen.dart';
@@ -110,6 +111,12 @@ class _SocietyAppState extends State<SocietyApp> {
             '/my-flat': (context) => const MyFlatScreen(),
             '/profile': (context) => const ProfileScreen(),
             '/flats-management': (context) => const FlatsManagementScreen(),
+            '/admin-vehicles': (context) => const _AdminGate(
+                  child: AdminVehiclesScreen(),
+                ),
+            '/vehicles': (context) => AppSession.instance.isAdmin
+                ? const _AdminGate(child: AdminVehiclesScreen())
+                : const ProfileScreen(),
             '/directory': (context) => const _AdminGate(
                   child: DirectoryScreen(showBack: true),
                 ),
