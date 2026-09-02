@@ -18,6 +18,7 @@ import 'screens/notices_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/visitors/visitors_root_screen.dart';
 import 'services/app_session.dart';
 import 'services/notifications_service.dart';
 import 'theme/app_theme.dart';
@@ -98,7 +99,7 @@ class _SocietyAppState extends State<SocietyApp> {
                 ),
             '/notifications': (context) => const NotificationsScreen(),
             '/maintenance': (context) => const _FeatureScreen('Maintenance'),
-            '/visitors': (context) => const _FeatureScreen('Visitors'),
+            '/visitors': (context) => const VisitorsRootScreen(),
             '/complaints': (context) => const ComplaintsRootScreen(),
             '/complaints/raise': (context) => const RaiseComplaintScreen(),
             '/staff': (context) => const _FeatureScreen('Staff'),

@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../../models/complaint_models.dart';
 import '../../services/app_session.dart';
 import '../../services/complaints_service.dart';
+import '../../services/notifications_service.dart';
 import '../../theme/app_theme.dart';
 import 'admin_complaint_detail_screen.dart';
 
@@ -32,6 +33,7 @@ class _AdminHelpdeskScreenState extends State<AdminHelpdeskScreen> {
   @override
   void initState() {
     super.initState();
+    NotificationsService.instance.markModuleAsRead('complaint');
     _loadData();
   }
 

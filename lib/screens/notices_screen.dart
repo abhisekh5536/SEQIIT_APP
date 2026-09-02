@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../models/notice_models.dart';
 import '../services/app_session.dart';
 import '../services/notices_service.dart';
+import '../services/notifications_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/skeleton_loader.dart';
 import 'notices/admin_notice_detail_screen.dart';
@@ -35,6 +36,7 @@ class _NoticesScreenState extends State<NoticesScreen> {
   void initState() {
     super.initState();
     AppSession.instance.addListener(_onSessionChanged);
+    NotificationsService.instance.markModuleAsRead('notice');
     _loadNotices();
   }
 

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../models/db_models.dart';
 import '../services/app_session.dart';
 import '../theme/app_theme.dart';
 
@@ -104,7 +103,6 @@ class _AdminVehiclesScreenState extends State<AdminVehiclesScreen> {
   final TextEditingController _searchController = TextEditingController();
   List<AdminVehicleEntry> _allVehicles = [];
   bool _isLoading = true;
-  String? _error;
   _VehicleFilter _filter = _VehicleFilter.all;
 
   @override
@@ -122,7 +120,6 @@ class _AdminVehiclesScreenState extends State<AdminVehiclesScreen> {
   Future<void> _loadVehicles() async {
     setState(() {
       _isLoading = true;
-      _error = null;
     });
 
     try {

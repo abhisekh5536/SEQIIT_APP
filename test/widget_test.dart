@@ -6,7 +6,6 @@ import 'package:society_management/main.dart';
 import 'package:society_management/screens/admin_vehicles_screen.dart';
 import 'package:society_management/screens/home_screen.dart';
 import 'package:society_management/screens/main_shell.dart';
-import 'package:society_management/screens/notices_screen.dart';
 import 'package:society_management/theme/app_theme.dart';
 import 'package:society_management/theme/theme_controller.dart';
 import 'package:society_management/widgets/home_widgets.dart';

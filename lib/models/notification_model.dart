@@ -72,6 +72,7 @@ class AppNotification {
   bool get isComplaint => entityType == 'complaint' || type.startsWith('complaint');
   bool get isApproval => entityType == 'join_request' || type.startsWith('join_request');
   bool get isNotice => entityType == 'notice' || type == 'notice';
+  bool get isVisitor => entityType == 'visitor' || type.startsWith('visitor');
 
   IconData get icon {
     switch (type) {
@@ -93,6 +94,18 @@ class AppNotification {
         return Icons.cancel_outlined;
       case 'notice':
         return Icons.campaign_rounded;
+      case 'visitor_approval_request':
+        return Icons.door_front_door_rounded;
+      case 'visitor_approved':
+        return Icons.how_to_reg_rounded;
+      case 'visitor_denied':
+        return Icons.person_off_rounded;
+      case 'visitor_preapproved_created':
+        return Icons.verified_rounded;
+      case 'visitor_checked_in':
+        return Icons.login_rounded;
+      case 'visitor_checked_out':
+        return Icons.logout_rounded;
       default:
         return Icons.notifications_rounded;
     }
@@ -115,6 +128,17 @@ class AppNotification {
         return const Color(0xFF059669);
       case 'notice':
         return const Color(0xFF7C73C0);
+      case 'visitor_approval_request':
+        return const Color(0xFFD97706);
+      case 'visitor_approved':
+      case 'visitor_preapproved_created':
+        return const Color(0xFF2563EB);
+      case 'visitor_denied':
+        return const Color(0xFFDC2626);
+      case 'visitor_checked_in':
+        return const Color(0xFF16A34A);
+      case 'visitor_checked_out':
+        return const Color(0xFF059669);
       default:
         return const Color(0xFF64748B);
     }

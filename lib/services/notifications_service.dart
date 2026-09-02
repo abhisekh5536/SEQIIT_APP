@@ -132,6 +132,66 @@ class NotificationsService extends ChangeNotifier {
         return n;
       }).toList();
 
+      // Auto-reconcile visitor notifications: if a visitor is already resolved
+      // (status != 'pending_approval'), its 'visitor_approval_request' notification
+      // must be marked as read so it doesn't stay unread or show the NEW badge!
+      final visitorReqNotifs = _notifications
+          .where((n) =>
+              (n.entityType == 'visitor' || n.type == 'visitor_approval_request') &&
+              n.type == 'visitor_approval_request' &&
+              !n.isRead &&
+              n.entityId != null &&
+              n.entityId!.isNotEmpty)
+          .toList();
+
+      if (visitorReqNotifs.isNotEmpty) {
+        try {
+          final vIds = visitorReqNotifs.map((n) => n.entityId!).toSet().toList();
+          final vRes = await client
+              .from('visitors')
+              .select('id, status')
+              .inFilter('id', vIds);
+
+          final statusMap = {
+            for (final row in (vRes as List))
+              row['id']?.toString() ?? '': row['status']?.toString() ?? ''
+          };
+
+          bool changed = false;
+          _notifications = _notifications.map((n) {
+            if ((n.entityType == 'visitor' || n.type == 'visitor_approval_request') &&
+                n.type == 'visitor_approval_request' &&
+                !n.isRead) {
+              final vStatus = statusMap[n.entityId];
+              if (vStatus != null && vStatus != 'pending_approval') {
+                changed = true;
+                _locallyReadIds.add(n.id);
+                // Also update DB table if it's a real DB record
+                if (!n.id.contains('_')) {
+                  client
+                      .from('notifications')
+                      .update({'is_read': true})
+                      .eq('id', n.id)
+                      .catchError((_) {});
+                }
+                return n.copyWith(isRead: true);
+              }
+            }
+            return n;
+          }).toList();
+
+          if (changed) {
+            try {
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setString(
+                  _readIdsPrefKey, jsonEncode(_locallyReadIds.toList()));
+            } catch (_) {}
+          }
+        } catch (e) {
+          debugPrint('Error auto-reconciling visitor notifications: $e');
+        }
+      }
+
       // Sort newest first
       _notifications.sort((a, b) => b.createdAt.compareTo(a.createdAt));
     } catch (e) {
@@ -275,6 +335,101 @@ class NotificationsService extends ChangeNotifier {
           ));
         }
       }
+
+      // Synthesize Visitor Notifications
+      try {
+        final flatIds = myResidences.map((r) => r.flatId).toSet().toList();
+        if (isAdmin || flatIds.isNotEmpty) {
+          var visitorQuery = client
+              .from('visitors')
+              .select('*, flats(flat_number)')
+              .eq('society_id', societyId);
+
+          if (!isAdmin) {
+            visitorQuery = visitorQuery.inFilter('flat_id', flatIds);
+          }
+
+          final visitorsRes = await visitorQuery
+              .order('created_at', ascending: false)
+              .limit(25);
+
+          for (final v in visitorsRes as List) {
+            final createdAt = DateTime.tryParse(v['created_at']?.toString() ?? '') ?? DateTime.now();
+            if (cutoff != null && createdAt.isBefore(cutoff)) continue;
+
+            final id = v['id']?.toString() ?? '';
+            final vName = v['visitor_name']?.toString() ?? 'Visitor';
+            final status = v['status']?.toString() ?? 'pending_approval';
+            final entryType = v['entry_type']?.toString() ?? 'gate_request';
+            final category = v['category']?.toString() ?? 'guest';
+            final code = v['approval_code']?.toString() ?? '';
+            final flatMap = v['flats'] is Map ? v['flats'] as Map : {};
+            final flatNum = flatMap['flat_number']?.toString() ?? '';
+
+            if (isAdmin) {
+              list.add(AppNotification(
+                id: 'v_admin_${id}_$status',
+                societyId: societyId,
+                targetRole: 'society_admin',
+                title: '🚪 Visitor: $vName',
+                body: 'Flat $flatNum · Status: ${status.replaceAll('_', ' ').toUpperCase()}',
+                type: status == 'pending_approval'
+                    ? 'visitor_approval_request'
+                    : status == 'approved'
+                        ? 'visitor_approved'
+                        : 'visitor_checked_in',
+                entityType: 'visitor',
+                entityId: id,
+                route: '/visitors',
+                isRead: status != 'pending_approval',
+                createdAt: createdAt,
+              ));
+            } else {
+              String notifTitle;
+              String notifBody;
+              String notifType;
+
+              if (status == 'pending_approval') {
+                notifTitle = '🚪 Visitor at Gate: $vName';
+                notifBody = 'Category: $category · Tap to approve or deny';
+                notifType = 'visitor_approval_request';
+              } else if (status == 'approved' && entryType == 'pre_approved') {
+                notifTitle = '✅ Pre-Approval Created: $vName';
+                notifBody = 'Approval Code: #$code · $category';
+                notifType = 'visitor_preapproved_created';
+              } else if (status == 'approved') {
+                notifTitle = '✅ Visitor Approved: $vName';
+                notifBody = 'Entry approved · Code: #$code';
+                notifType = 'visitor_approved';
+              } else if (status == 'denied') {
+                notifTitle = '❌ Visitor Denied: $vName';
+                notifBody = v['denied_reason']?.toString() ?? 'Entry was denied';
+                notifType = 'visitor_denied';
+              } else {
+                notifTitle = 'Visitor: $vName';
+                notifBody = 'Status: ${status.replaceAll('_', ' ')}';
+                notifType = 'general';
+              }
+
+              list.add(AppNotification(
+                id: 'v_res_${id}_$status',
+                societyId: societyId,
+                targetRole: 'resident',
+                title: notifTitle,
+                body: notifBody,
+                type: notifType,
+                entityType: 'visitor',
+                entityId: id,
+                route: '/visitors',
+                isRead: status != 'pending_approval',
+                createdAt: createdAt,
+              ));
+            }
+          }
+        }
+      } catch (visitorErr) {
+        debugPrint('Visitor notifications synthesis error: $visitorErr');
+      }
     } catch (e) {
       debugPrint('Error synthesizing fallback notifications: $e');
     }
@@ -303,6 +458,103 @@ class NotificationsService extends ChangeNotifier {
       final client = _client;
       if (client != null && !notificationId.contains('_')) {
         await client.from('notifications').update({'is_read': true}).eq('id', notificationId);
+      }
+    } catch (_) {}
+  }
+
+  /// Marks all notifications corresponding to a specific entity (e.g. visitor, complaint) as read.
+  Future<void> markEntityAsRead(String entityType, String entityId) async {
+    final toMark = _notifications
+        .where((n) =>
+            (n.entityType == entityType || n.type.startsWith(entityType)) &&
+            n.entityId == entityId)
+        .map((n) => n.id)
+        .toList();
+
+    for (final id in toMark) {
+      _locallyReadIds.add(id);
+    }
+
+    _notifications = _notifications.map((n) {
+      if ((n.entityType == entityType || n.type.startsWith(entityType)) &&
+          n.entityId == entityId) {
+        return n.copyWith(isRead: true);
+      }
+      return n;
+    }).toList();
+    notifyListeners();
+
+    // Persist locally
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+          _readIdsPrefKey, jsonEncode(_locallyReadIds.toList()));
+    } catch (_) {}
+
+    // Persist remotely
+    try {
+      final client = _client;
+      if (client != null) {
+        await client
+            .from('notifications')
+            .update({'is_read': true})
+            .eq('entity_type', entityType)
+            .eq('entity_id', entityId);
+      }
+    } catch (_) {}
+  }
+
+  /// Marks all notifications corresponding to a specific module (e.g. 'visitor', 'notice', 'complaint', 'join_request') as read.
+  Future<void> markModuleAsRead(String entityType) async {
+    final matchingNotifs = _notifications.where((n) {
+      final isMatchingType = n.entityType == entityType ||
+          n.type.startsWith(entityType) ||
+          (entityType == 'visitor' && n.isVisitor) ||
+          (entityType == 'notice' && n.isNotice) ||
+          (entityType == 'complaint' && n.isComplaint) ||
+          (entityType == 'join_request' && n.isApproval);
+      return isMatchingType && !n.isRead;
+    }).toList();
+
+    if (matchingNotifs.isEmpty) return;
+
+    for (final n in matchingNotifs) {
+      _locallyReadIds.add(n.id);
+    }
+
+    _notifications = _notifications.map((n) {
+      final isMatchingType = n.entityType == entityType ||
+          n.type.startsWith(entityType) ||
+          (entityType == 'visitor' && n.isVisitor) ||
+          (entityType == 'notice' && n.isNotice) ||
+          (entityType == 'complaint' && n.isComplaint) ||
+          (entityType == 'join_request' && n.isApproval);
+      if (isMatchingType) {
+        return n.copyWith(isRead: true);
+      }
+      return n;
+    }).toList();
+    notifyListeners();
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+          _readIdsPrefKey, jsonEncode(_locallyReadIds.toList()));
+    } catch (_) {}
+
+    try {
+      final client = _client;
+      if (client != null) {
+        final idsToUpdate = matchingNotifs
+            .where((n) => !n.id.contains('_'))
+            .map((n) => n.id)
+            .toList();
+        if (idsToUpdate.isNotEmpty) {
+          await client
+              .from('notifications')
+              .update({'is_read': true})
+              .inFilter('id', idsToUpdate);
+        }
       }
     } catch (_) {}
   }
