@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_theme.dart';
-
 /// Reusable shimmer container for smooth loading states.
 class SkeletonShimmer extends StatefulWidget {
   final Widget child;
@@ -124,8 +122,6 @@ class HomeScreenSkeleton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final p = AppTheme.paletteFor(Theme.of(context).brightness);
-
     return SkeletonShimmer(
       child: SafeArea(
         bottom: false,

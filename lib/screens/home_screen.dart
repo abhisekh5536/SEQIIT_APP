@@ -8,6 +8,7 @@ import '../services/app_session.dart';
 import '../services/complaints_service.dart';
 import '../services/notifications_service.dart';
 import '../services/notices_service.dart';
+import '../services/visitors_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/hero_carousel.dart';
 import '../widgets/home_widgets.dart';
@@ -190,7 +191,8 @@ class _HomeScreenState extends State<HomeScreen> {
   int _allNoticesCount = 0;
   int _unreadNoticesCount = 0;
   int _openRequestsCount = 0;
-  final int _visitorsToday = 12;
+  int _visitorsToday = 0;
+  int _pendingVisitorsCount = 0;
   bool _isLoadingHome = true;
 
   String? _badgeFor(String title) {
@@ -201,7 +203,9 @@ class _HomeScreenState extends State<HomeScreen> {
           : null,
       'complaints' || 'helpdesk' =>
         _openRequestsCount > 0 ? '$_openRequestsCount open' : null,
-      'visitors' => '$_visitorsToday today',
+      'visitors' => _pendingVisitorsCount > 0
+          ? '$_pendingVisitorsCount pending'
+          : '$_visitorsToday today',
       _ => null,
     };
   }
@@ -210,18 +214,34 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     AppSession.instance.addListener(_onSessionChanged);
+    VisitorsService.instance.addListener(_onVisitorsChanged);
+    NotificationsService.instance.addListener(_onNotificationsChanged);
     _loadHomeData();
   }
 
   @override
   void dispose() {
     AppSession.instance.removeListener(_onSessionChanged);
+    VisitorsService.instance.removeListener(_onVisitorsChanged);
+    NotificationsService.instance.removeListener(_onNotificationsChanged);
     super.dispose();
   }
 
   void _onSessionChanged() {
     if (mounted && AppSession.instance.isLoaded) {
       _loadHomeData(skipSessionLoad: true);
+    }
+  }
+
+  void _onVisitorsChanged() {
+    if (mounted) {
+      _loadHomeData(skipSessionLoad: true);
+    }
+  }
+
+  void _onNotificationsChanged() {
+    if (mounted) {
+      setState(() {});
     }
   }
 
@@ -262,12 +282,29 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       } catch (_) {}
 
+      // Load today's visitor count & pending approval count
+      int visitorsToday = 0;
+      int pendingVisitors = 0;
+      try {
+        final results = await Future.wait([
+          VisitorsService.instance.getTodaysVisitorCount(),
+          VisitorsService.instance.getPendingApprovalCount(),
+        ]);
+        visitorsToday = results[0];
+        pendingVisitors = results[1];
+      } catch (_) {}
+
+      // Refresh and reconcile notifications to keep unread bell dot in sync
+      NotificationsService.instance.fetchNotifications();
+
       if (mounted) {
         setState(() {
           _liveNotices = notices.take(3).toList();
           _allNoticesCount = notices.length;
           _unreadNoticesCount = notices.where((n) => !n.isReadByMe).length;
           _openRequestsCount = openReqs;
+          _visitorsToday = visitorsToday;
+          _pendingVisitorsCount = pendingVisitors;
           _isLoadingHome = false;
         });
       }
@@ -314,6 +351,83 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                 ),
+                if (_pendingVisitorsCount > 0)
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+                    sliver: SliverToBoxAdapter(
+                      child: InkWell(
+                        onTap: () => Navigator.pushNamed(context, '/visitors')
+                            .then((_) => _loadHomeData()),
+                        borderRadius: BorderRadius.circular(16),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 14),
+                          decoration: BoxDecoration(
+                            color: p.warning.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                                color: p.warning.withValues(alpha: 0.4),
+                                width: 1.5),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 40,
+                                height: 40,
+                                decoration: BoxDecoration(
+                                  color: p.warning.withValues(alpha: 0.2),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Icon(Icons.door_front_door_rounded,
+                                    color: p.warning, size: 22),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      '$_pendingVisitorsCount Visitor${_pendingVisitorsCount > 1 ? 's' : ''} at Gate',
+                                      style: TextStyle(
+                                        color: p.warning,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      'Waiting for your entry approval',
+                                      style: TextStyle(
+                                        color: p.textSecondary,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: p.warning,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: const Text(
+                                  'Review',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                 SliverPadding(
                   padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
                   sliver: SliverToBoxAdapter(

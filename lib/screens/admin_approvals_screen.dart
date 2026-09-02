@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/db_models.dart';
 import '../services/app_session.dart';
+import '../services/notifications_service.dart';
 import '../theme/app_theme.dart';
 
 class AdminApprovalsScreen extends StatefulWidget {
@@ -27,6 +28,7 @@ class _AdminApprovalsScreenState extends State<AdminApprovalsScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    NotificationsService.instance.markModuleAsRead('join_request');
     _loadRequests();
   }
 

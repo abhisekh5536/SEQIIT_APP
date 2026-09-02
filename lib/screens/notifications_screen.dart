@@ -8,6 +8,7 @@ import '../theme/app_theme.dart';
 import 'admin_approvals_screen.dart';
 import 'complaints/admin_complaint_detail_screen.dart';
 import 'complaints/resident_complaint_detail_screen.dart';
+import 'visitors/visitor_detail_screen.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -66,6 +67,19 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
     if (entityType == 'notice' || notification.type == 'notice') {
       Navigator.pushNamed(context, '/notices');
+      return;
+    }
+
+    if ((entityType == 'visitor' || notification.type.startsWith('visitor')) &&
+        entityId != null &&
+        entityId.isNotEmpty &&
+        !entityId.contains('_')) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => VisitorDetailScreen(visitorId: entityId),
+        ),
+      );
       return;
     }
 

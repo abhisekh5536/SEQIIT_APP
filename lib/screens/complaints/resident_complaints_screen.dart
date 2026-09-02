@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../../models/complaint_models.dart';
 import '../../services/app_session.dart';
 import '../../services/complaints_service.dart';
+import '../../services/notifications_service.dart';
 import '../../theme/app_theme.dart';
 import 'raise_complaint_screen.dart';
 import 'resident_complaint_detail_screen.dart';
@@ -29,6 +30,7 @@ class _ResidentComplaintsScreenState extends State<ResidentComplaintsScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    NotificationsService.instance.markModuleAsRead('complaint');
     _loadComplaints();
   }
 
