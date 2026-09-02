@@ -579,7 +579,7 @@ class StatCard extends StatelessWidget {
 /// data supports it — a live count chip on the trailing edge.
 class ServiceTile extends StatelessWidget {
   final SocietyService service;
-  final Color accent;
+  final Color? accent;
 
   /// Small live badge, e.g. '3' open items. Rendered as a filled dot-chip
   /// when non-null and non-empty; omitted for quiet services.
@@ -588,7 +588,7 @@ class ServiceTile extends StatelessWidget {
   const ServiceTile({
     super.key,
     required this.service,
-    required this.accent,
+    this.accent,
     this.badge,
   });
 
@@ -596,6 +596,10 @@ class ServiceTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = AppTheme.paletteFor(Theme.of(context).brightness);
     final textTheme = Theme.of(context).textTheme;
+    final tileAccent = accent ??
+        (service.colorIndex != null
+            ? p.featureColor(service.colorIndex!)
+            : p.primary);
 
     return Material(
       color: p.card,
@@ -614,7 +618,7 @@ class ServiceTile extends StatelessWidget {
                 offset: const Offset(0, 6),
               ),
               BoxShadow(
-                color: accent.withValues(alpha: 0.08),
+                color: tileAccent.withValues(alpha: 0.08),
                 blurRadius: 20,
                 offset: const Offset(0, 5),
               ),
@@ -631,10 +635,10 @@ class ServiceTile extends StatelessWidget {
                     width: 38,
                     height: 38,
                     decoration: BoxDecoration(
-                      color: accent.withValues(alpha: 0.13),
+                      color: tileAccent.withValues(alpha: 0.13),
                       borderRadius: BorderRadius.circular(11.5),
                     ),
-                    child: Icon(service.icon, size: 20, color: accent),
+                    child: Icon(service.icon, size: 20, color: tileAccent),
                   ),
                   const Spacer(),
                   if (badge != null && badge!.isNotEmpty)
@@ -644,13 +648,13 @@ class ServiceTile extends StatelessWidget {
                         vertical: 2.5,
                       ),
                       decoration: BoxDecoration(
-                        color: accent.withValues(alpha: 0.13),
+                        color: tileAccent.withValues(alpha: 0.13),
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Text(
                         badge!,
                         style: textTheme.labelSmall?.copyWith(
-                          color: accent,
+                          color: tileAccent,
                           fontSize: 10.5,
                           fontWeight: FontWeight.w800,
                           letterSpacing: 0.2,

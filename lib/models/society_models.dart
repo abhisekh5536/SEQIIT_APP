@@ -5,12 +5,14 @@ class SocietyService {
   final String subtitle;
   final IconData icon;
   final String route;
+  final int? colorIndex;
 
   const SocietyService({
     required this.title,
     required this.subtitle,
     required this.icon,
     required this.route,
+    this.colorIndex,
   });
 }
 

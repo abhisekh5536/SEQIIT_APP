@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:society_management/main.dart';
+import 'package:society_management/screens/admin_vehicles_screen.dart';
 import 'package:society_management/screens/home_screen.dart';
 import 'package:society_management/screens/main_shell.dart';
 import 'package:society_management/screens/notices_screen.dart';
@@ -26,13 +27,13 @@ void main() {
   testWidgets('Home screen renders the society management hub',
       (WidgetTester tester) async {
     await tester.pumpWidget(_buildApp());
+    await tester.pumpAndSettle();
 
-    expect(find.text('SUNRISE HEIGHTS'), findsOneWidget);
-    expect(find.textContaining('Saurabh'), findsOneWidget);
-    expect(find.text('₹4,850.00'), findsOneWidget);
-    expect(find.text('All notices'), findsOneWidget);
+    expect(find.text('MY SOCIETY'), findsOneWidget);
+    expect(find.textContaining('Resident'), findsOneWidget);
+    expect(find.textContaining('₹4,850'), findsWidgets);
     expect(find.text('Visitors today'), findsOneWidget);
-    expect(find.text('Open requests'), findsOneWidget);
+    expect(find.text('Notices'), findsWidgets);
 
     // The hero carousel nests its own PageView scrollable; .first keeps the
     // outer page scroll (tree order puts ancestors before descendants).
@@ -48,6 +49,7 @@ void main() {
       scrollable: scrollable,
     );
     expect(find.text('Services'), findsOneWidget);
+    expect(find.text('Notices'), findsWidgets);
 
     await tester.scrollUntilVisible(
       find.text('Latest updates'),
@@ -107,6 +109,27 @@ void main() {
     expect(find.text('View receipts'), findsOneWidget);
     expect(find.text('Ledger'), findsOneWidget);
     expect(find.text('Maintenance due'), findsNothing);
+  });
+
+  testWidgets('AdminVehiclesScreen renders vehicle stats, search, and list',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(),
+        home: const Scaffold(
+          body: AdminVehiclesScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Vehicles & Parking'), findsOneWidget);
+    expect(find.text('Registered'), findsOneWidget);
+    expect(find.text('Allotted Slot'), findsOneWidget);
+    expect(find.text('Unassigned'), findsOneWidget);
+    expect(find.textContaining('Creta'), findsOneWidget);
+    expect(find.textContaining('P-101'), findsOneWidget);
+    expect(find.text('Add vehicle'), findsOneWidget);
   });
 }
 
