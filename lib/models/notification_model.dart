@@ -73,6 +73,7 @@ class AppNotification {
   bool get isApproval => entityType == 'join_request' || type.startsWith('join_request');
   bool get isNotice => entityType == 'notice' || type == 'notice';
   bool get isVisitor => entityType == 'visitor' || type.startsWith('visitor');
+  bool get isSos => entityType == 'sos_alert' || type.startsWith('sos_alert');
 
   IconData get icon {
     switch (type) {
@@ -106,6 +107,14 @@ class AppNotification {
         return Icons.login_rounded;
       case 'visitor_checked_out':
         return Icons.logout_rounded;
+      case 'sos_alert_raised':
+        return Icons.crisis_alert_rounded;
+      case 'sos_alert_acknowledged':
+        return Icons.visibility_rounded;
+      case 'sos_alert_resolved':
+        return Icons.task_alt_rounded;
+      case 'sos_alert_cancelled':
+        return Icons.cancel_outlined;
       default:
         return Icons.notifications_rounded;
     }
@@ -139,6 +148,14 @@ class AppNotification {
         return const Color(0xFF16A34A);
       case 'visitor_checked_out':
         return const Color(0xFF059669);
+      case 'sos_alert_raised':
+        return const Color(0xFFDC2626);
+      case 'sos_alert_acknowledged':
+        return const Color(0xFF0288D1);
+      case 'sos_alert_resolved':
+        return const Color(0xFF16A34A);
+      case 'sos_alert_cancelled':
+        return const Color(0xFF64748B);
       default:
         return const Color(0xFF64748B);
     }

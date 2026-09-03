@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -8,6 +9,7 @@ import '../services/app_session.dart';
 import '../services/complaints_service.dart';
 import '../services/notifications_service.dart';
 import '../services/notices_service.dart';
+import '../services/security_service.dart';
 import '../services/visitors_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/hero_carousel.dart';
@@ -16,6 +18,7 @@ import '../widgets/skeleton_loader.dart';
 import 'join_society_screen.dart';
 import 'notices/notice_detail_screen.dart';
 import 'request_status_screen.dart';
+import 'security/widgets/admin_sos_alert_dialog.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -127,6 +130,13 @@ class _HomeScreenState extends State<HomeScreen> {
             route: '/notices',
             colorIndex: 6,
           ),
+          const SocietyService(
+            title: 'Security',
+            subtitle: 'Emergency & SOS',
+            icon: Icons.shield_outlined,
+            route: '/security',
+            colorIndex: 7,
+          ),
         ]
       : [
           const SocietyService(
@@ -182,7 +192,7 @@ class _HomeScreenState extends State<HomeScreen> {
             title: 'Security',
             subtitle: 'Emergency contacts',
             icon: Icons.shield_outlined,
-            route: '/settings',
+            route: '/security',
             colorIndex: 7,
           ),
         ];
@@ -194,6 +204,7 @@ class _HomeScreenState extends State<HomeScreen> {
   int _visitorsToday = 0;
   int _pendingVisitorsCount = 0;
   bool _isLoadingHome = true;
+  StreamSubscription? _sosSub;
 
   String? _badgeFor(String title) {
     return switch (title.toLowerCase()) {
@@ -206,6 +217,9 @@ class _HomeScreenState extends State<HomeScreen> {
       'visitors' => _pendingVisitorsCount > 0
           ? '$_pendingVisitorsCount pending'
           : '$_visitorsToday today',
+      'security' => SecurityService.instance.activeSosAlerts.isNotEmpty
+          ? '🚨 ${SecurityService.instance.activeSosAlerts.length} SOS'
+          : null,
       _ => null,
     };
   }
@@ -216,6 +230,14 @@ class _HomeScreenState extends State<HomeScreen> {
     AppSession.instance.addListener(_onSessionChanged);
     VisitorsService.instance.addListener(_onVisitorsChanged);
     NotificationsService.instance.addListener(_onNotificationsChanged);
+    SecurityService.instance.addListener(_onSecurityChanged);
+    _sosSub = SecurityService.instance.onSosAlertReceived.listen((alert) {
+      if (!mounted) return;
+      if (AppSession.instance.isAdmin && alert.isActive) {
+        AdminSosAlertDialog.show(context, alert);
+      }
+      setState(() {});
+    });
     _loadHomeData();
   }
 
@@ -224,7 +246,15 @@ class _HomeScreenState extends State<HomeScreen> {
     AppSession.instance.removeListener(_onSessionChanged);
     VisitorsService.instance.removeListener(_onVisitorsChanged);
     NotificationsService.instance.removeListener(_onNotificationsChanged);
+    SecurityService.instance.removeListener(_onSecurityChanged);
+    _sosSub?.cancel();
     super.dispose();
+  }
+
+  void _onSecurityChanged() {
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   void _onSessionChanged() {

@@ -17,6 +17,7 @@ import 'screens/notices/create_edit_notice_screen.dart';
 import 'screens/notices_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'screens/profile_screen.dart';
+import 'screens/security/security_root_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/visitors/visitors_root_screen.dart';
 import 'services/app_session.dart';
@@ -125,6 +126,7 @@ class _SocietyAppState extends State<SocietyApp> {
                   child: AdminApprovalsScreen(),
                 ),
             '/join-society': (context) => const JoinSocietyScreen(),
+            '/security': (context) => const SecurityRootScreen(),
           },
         );
       },

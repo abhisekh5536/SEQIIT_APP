@@ -70,6 +70,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       return;
     }
 
+    if (entityType == 'sos_alert' || notification.type.startsWith('sos_alert')) {
+      Navigator.pushNamed(context, '/security');
+      return;
+    }
+
     if ((entityType == 'visitor' || notification.type.startsWith('visitor')) &&
         entityId != null &&
         entityId.isNotEmpty &&
