@@ -512,7 +512,8 @@ class NotificationsService extends ChangeNotifier {
           (entityType == 'visitor' && n.isVisitor) ||
           (entityType == 'notice' && n.isNotice) ||
           (entityType == 'complaint' && n.isComplaint) ||
-          (entityType == 'join_request' && n.isApproval);
+          (entityType == 'join_request' && n.isApproval) ||
+          ((entityType == 'sos_alert' || entityType == 'security') && n.isSos);
       return isMatchingType && !n.isRead;
     }).toList();
 
@@ -528,7 +529,8 @@ class NotificationsService extends ChangeNotifier {
           (entityType == 'visitor' && n.isVisitor) ||
           (entityType == 'notice' && n.isNotice) ||
           (entityType == 'complaint' && n.isComplaint) ||
-          (entityType == 'join_request' && n.isApproval);
+          (entityType == 'join_request' && n.isApproval) ||
+          ((entityType == 'sos_alert' || entityType == 'security') && n.isSos);
       if (isMatchingType) {
         return n.copyWith(isRead: true);
       }
