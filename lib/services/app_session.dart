@@ -226,10 +226,19 @@ class AppSession extends ChangeNotifier {
           _householdMembers = const [];
         }
         try {
-          final vehicleRows = await client
-              .from('resident_vehicles')
-              .select()
-              .inFilter('flat_id', flatIds);
+          dynamic vehicleRows;
+          try {
+            vehicleRows = await client
+                .from('vehicles')
+                .select()
+                .inFilter('flat_id', flatIds)
+                .eq('status', 'active');
+          } catch (_) {
+            vehicleRows = await client
+                .from('resident_vehicles')
+                .select()
+                .inFilter('flat_id', flatIds);
+          }
           _myVehicles = List.unmodifiable(
             (vehicleRows as List)
                 .cast<Map<String, dynamic>>()

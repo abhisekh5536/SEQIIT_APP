@@ -130,6 +130,8 @@ class VehicleRecord {
   final String makeModel;
   final String registrationNo;
   final String? parkingSlot;
+  final String? color;
+  final String status;
   final DateTime? createdAt;
 
   const VehicleRecord({
@@ -141,6 +143,8 @@ class VehicleRecord {
     String? makeModel,
     String? registrationNo,
     this.parkingSlot,
+    this.color,
+    this.status = 'active',
     this.createdAt,
   })  : makeModel = makeModel ?? vehicleType ?? 'Vehicle',
         registrationNo = registrationNo ?? vehicleNumber;
@@ -152,7 +156,7 @@ class VehicleRecord {
 
   factory VehicleRecord.fromMap(Map<String, dynamic> m) {
     final vNum = m['vehicle_number']?.toString() ?? m['number']?.toString() ?? m['registration_no']?.toString() ?? '';
-    final vType = m['vehicle_type']?.toString();
+    final vType = m['vehicle_type']?.toString() ?? m['type']?.toString();
     return VehicleRecord(
       id: m['id']?.toString() ?? '',
       flatId: m['flat_id']?.toString() ?? '',
@@ -162,6 +166,8 @@ class VehicleRecord {
       makeModel: m['make_model']?.toString() ?? vType ?? 'Vehicle',
       registrationNo: m['registration_no']?.toString() ?? vNum,
       parkingSlot: m['parking_slot']?.toString(),
+      color: m['color']?.toString(),
+      status: m['status']?.toString() ?? 'active',
       createdAt: _parseDate(m['created_at']),
     );
   }
