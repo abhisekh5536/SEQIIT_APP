@@ -19,6 +19,7 @@ import 'screens/notifications_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/security/security_root_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/vehicles/vehicles_parking_root_screen.dart';
 import 'screens/visitors/visitors_root_screen.dart';
 import 'services/app_session.dart';
 import 'services/notifications_service.dart';
@@ -114,11 +115,9 @@ class _SocietyAppState extends State<SocietyApp> {
             '/profile': (context) => const ProfileScreen(),
             '/flats-management': (context) => const FlatsManagementScreen(),
             '/admin-vehicles': (context) => const _AdminGate(
-                  child: AdminVehiclesScreen(),
+                  child: VehiclesParkingRootScreen(),
                 ),
-            '/vehicles': (context) => AppSession.instance.isAdmin
-                ? const _AdminGate(child: AdminVehiclesScreen())
-                : const ProfileScreen(),
+            '/vehicles': (context) => const VehiclesParkingRootScreen(),
             '/directory': (context) => const _AdminGate(
                   child: DirectoryScreen(showBack: true),
                 ),

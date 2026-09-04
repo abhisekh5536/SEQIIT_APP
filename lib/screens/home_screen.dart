@@ -176,9 +176,9 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SocietyService(
             title: 'Vehicles',
-            subtitle: 'Parking & tags',
+            subtitle: 'Parking & slots',
             icon: Icons.directions_car_outlined,
-            route: '/profile',
+            route: '/vehicles',
             colorIndex: 5,
           ),
           const SocietyService(

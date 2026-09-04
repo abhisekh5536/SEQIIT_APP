@@ -546,6 +546,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
               label: const Text('Add vehicle'),
             ),
           ),
+          const SizedBox(height: 6),
+          SizedBox(
+            width: double.infinity,
+            child: TextButton.icon(
+              onPressed: () => Navigator.pushNamed(context, '/vehicles'),
+              icon: const Icon(Icons.open_in_new_rounded, size: 16),
+              label: const Text('Open Parking & Vehicles Module'),
+            ),
+          ),
         ],
       ),
     );
@@ -925,14 +934,26 @@ class _AddVehicleDialogState extends State<_AddVehicleDialog> {
 
     setState(() => _submitting = true);
     try {
-      await Supabase.instance.client.from('resident_vehicles').insert({
-        'society_id': widget.primary.societyId,
-        'flat_id': widget.primary.flatId,
-        'resident_id': widget.primary.id,
-        'make_model': make,
-        'registration_no': reg,
-        if (parking.isNotEmpty) 'parking_slot': parking,
-      });
+      try {
+        await Supabase.instance.client.from('vehicles').insert({
+          'society_id': widget.primary.societyId,
+          'flat_id': widget.primary.flatId,
+          'resident_id': widget.primary.id,
+          'make_model': make,
+          'vehicle_number': reg,
+          'type': 'four_wheeler',
+          'status': 'active',
+        });
+      } catch (_) {
+        await Supabase.instance.client.from('resident_vehicles').insert({
+          'society_id': widget.primary.societyId,
+          'flat_id': widget.primary.flatId,
+          'resident_id': widget.primary.id,
+          'make_model': make,
+          'registration_no': reg,
+          if (parking.isNotEmpty) 'parking_slot': parking,
+        });
+      }
       if (!mounted) return;
       Navigator.pop(context, true);
     } catch (e) {
