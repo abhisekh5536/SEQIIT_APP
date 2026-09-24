@@ -75,6 +75,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       return;
     }
 
+    if (notification.isMarketplace) {
+      Navigator.pushNamed(context, '/marketplace');
+      return;
+    }
+
     if ((entityType == 'visitor' || notification.type.startsWith('visitor')) &&
         entityId != null &&
         entityId.isNotEmpty &&

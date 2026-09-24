@@ -74,6 +74,8 @@ class AppNotification {
   bool get isNotice => entityType == 'notice' || type == 'notice';
   bool get isVisitor => entityType == 'visitor' || type.startsWith('visitor');
   bool get isSos => entityType == 'sos_alert' || type.startsWith('sos_alert');
+  bool get isMarketplace =>
+      entityType == 'marketplace_listing' || type.startsWith('marketplace_');
 
   IconData get icon {
     switch (type) {
@@ -115,6 +117,15 @@ class AppNotification {
         return Icons.task_alt_rounded;
       case 'sos_alert_cancelled':
         return Icons.cancel_outlined;
+      case 'marketplace_report_submitted':
+      case 'marketplace_listing_reported':
+        return Icons.flag_rounded;
+      case 'marketplace_listing_removed':
+        return Icons.remove_shopping_cart_rounded;
+      case 'marketplace_seller_warned':
+        return Icons.info_outline_rounded;
+      case 'marketplace_seller_blocked':
+        return Icons.block_rounded;
       default:
         return Icons.notifications_rounded;
     }
@@ -156,6 +167,13 @@ class AppNotification {
         return const Color(0xFF16A34A);
       case 'sos_alert_cancelled':
         return const Color(0xFF64748B);
+      case 'marketplace_report_submitted':
+      case 'marketplace_listing_reported':
+      case 'marketplace_seller_warned':
+        return const Color(0xFFD97706);
+      case 'marketplace_listing_removed':
+      case 'marketplace_seller_blocked':
+        return const Color(0xFFDC2626);
       default:
         return const Color(0xFF64748B);
     }

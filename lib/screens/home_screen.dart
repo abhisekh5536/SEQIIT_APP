@@ -7,6 +7,7 @@ import '../models/notice_models.dart';
 import '../models/society_models.dart';
 import '../services/app_session.dart';
 import '../services/complaints_service.dart';
+import '../services/marketplace_service.dart';
 import '../services/notifications_service.dart';
 import '../services/notices_service.dart';
 import '../services/security_service.dart';
@@ -137,6 +138,13 @@ class _HomeScreenState extends State<HomeScreen> {
             route: '/security',
             colorIndex: 7,
           ),
+          const SocietyService(
+            title: 'Marketplace',
+            subtitle: 'Moderate listings',
+            icon: Icons.storefront_outlined,
+            route: '/marketplace',
+            colorIndex: 2,
+          ),
         ]
       : [
           const SocietyService(
@@ -195,6 +203,13 @@ class _HomeScreenState extends State<HomeScreen> {
             route: '/security',
             colorIndex: 7,
           ),
+          const SocietyService(
+            title: 'Marketplace',
+            subtitle: 'Buy & sell locally',
+            icon: Icons.storefront_outlined,
+            route: '/marketplace',
+            colorIndex: 2,
+          ),
         ];
 
   List<NoticeRecord> _liveNotices = [];
@@ -217,6 +232,10 @@ class _HomeScreenState extends State<HomeScreen> {
       'visitors' => _pendingVisitorsCount > 0
           ? '$_pendingVisitorsCount pending'
           : '$_visitorsToday today',
+      'marketplace' => AppSession.instance.isAdmin &&
+              MarketplaceService.instance.pendingReportsCount > 0
+          ? '${MarketplaceService.instance.pendingReportsCount} reported'
+          : null,
       'security' => SecurityService.instance.activeSosAlerts.isNotEmpty
           ? '🚨 ${SecurityService.instance.activeSosAlerts.length} SOS'
           : null,
@@ -231,6 +250,7 @@ class _HomeScreenState extends State<HomeScreen> {
     VisitorsService.instance.addListener(_onVisitorsChanged);
     NotificationsService.instance.addListener(_onNotificationsChanged);
     SecurityService.instance.addListener(_onSecurityChanged);
+    MarketplaceService.instance.addListener(_onSecurityChanged);
     _sosSub = SecurityService.instance.onSosAlertReceived.listen((alert) {
       if (!mounted) return;
       if (AppSession.instance.isAdmin && alert.isActive) {
@@ -247,6 +267,7 @@ class _HomeScreenState extends State<HomeScreen> {
     VisitorsService.instance.removeListener(_onVisitorsChanged);
     NotificationsService.instance.removeListener(_onNotificationsChanged);
     SecurityService.instance.removeListener(_onSecurityChanged);
+    MarketplaceService.instance.removeListener(_onSecurityChanged);
     _sosSub?.cancel();
     super.dispose();
   }
@@ -288,6 +309,10 @@ class _HomeScreenState extends State<HomeScreen> {
       try {
         final session = AppSession.instance;
         if (session.isAdmin) {
+          if (session.societyId != null) {
+            MarketplaceService.instance
+                .refreshPendingReportsCount(session.societyId!);
+          }
           final complaints = await ComplaintsService.instance
               .fetchSocietyComplaints();
           openReqs = complaints
