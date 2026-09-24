@@ -12,6 +12,7 @@ import 'screens/directory_screen.dart';
 import 'screens/flats_management_screen.dart';
 import 'screens/join_society_screen.dart';
 import 'screens/main_shell.dart';
+import 'screens/marketplace/marketplace_root_screen.dart';
 import 'screens/my_flat_screen.dart';
 import 'screens/notices/create_edit_notice_screen.dart';
 import 'screens/notices_screen.dart';
@@ -126,6 +127,7 @@ class _SocietyAppState extends State<SocietyApp> {
                 ),
             '/join-society': (context) => const JoinSocietyScreen(),
             '/security': (context) => const SecurityRootScreen(),
+            '/marketplace': (context) => const MarketplaceRootScreen(),
           },
         );
       },
