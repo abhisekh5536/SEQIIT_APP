@@ -24,7 +24,9 @@ import 'screens/vehicles/guard/vehicle_gate_lookup_screen.dart';
 import 'screens/vehicles/vehicles_parking_root_screen.dart';
 import 'screens/visitors/visitors_root_screen.dart';
 import 'services/app_session.dart';
+import 'services/local_push_service.dart';
 import 'services/notifications_service.dart';
+import 'services/push_messaging_service.dart';
 import 'services/visitors_service.dart';
 import 'theme/app_theme.dart';
 import 'theme/theme_controller.dart';
@@ -41,6 +43,8 @@ Future<void> main() async {
     publishableKey: dotenv.env['SUPABASE_PUBLISHABLE_KEY']!.trim(),
   );
   final themeController = await ThemeController.load();
+  await LocalPushService.instance.init();
+  await PushMessagingService.instance.init();
   runApp(SocietyApp(themeController: themeController));
 }
 
@@ -56,10 +60,15 @@ class SocietyApp extends StatefulWidget {
 class _SocietyAppState extends State<SocietyApp> {
   bool _loggedIn = false;
   StreamSubscription<VisitorLiveEvent>? _visitorLiveSub;
+  final _navigatorKey = GlobalKey<NavigatorState>();
 
   @override
   void initState() {
     super.initState();
+    LocalPushService.instance.navigatorKey = _navigatorKey;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_loggedIn) LocalPushService.instance.flushPendingRoute();
+    });
     try {
       if (Supabase.instance.client.auth.currentSession != null) {
         _loggedIn = true;
@@ -96,12 +105,15 @@ class _SocietyAppState extends State<SocietyApp> {
     if (societyId == null || societyId.isEmpty) return;
 
     VisitorsService.instance.initRealtime(societyId);
+    LocalPushService.instance.requestPermission();
+    PushMessagingService.instance.register();
     _visitorLiveSub?.cancel();
     _visitorLiveSub = VisitorsService.instance.onVisitorEvent.listen((event) {
       if (event.isApprovalDecision || event.isNewGateRequest) {
         // Debounced: a busy gate produces a burst of events, and each
         // fetch costs several queries.
         NotificationsService.instance.refreshSoon();
+        LocalPushService.instance.handleVisitorEvent(event);
       }
     });
   }
@@ -124,6 +136,7 @@ class _SocietyAppState extends State<SocietyApp> {
       valueListenable: widget.themeController,
       builder: (context, themeMode, _) {
         return MaterialApp(
+          navigatorKey: _navigatorKey,
           title: 'Society Management',
           debugShowCheckedModeBanner: false,
           theme: AppTheme.light(),

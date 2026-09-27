@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/notification_model.dart';
 import '../services/app_session.dart';
 import '../services/notifications_service.dart';
+import '../services/push_messaging_service.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_controller.dart';
 
@@ -27,6 +28,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _signOut() async {
     setState(() => _signingOut = true);
     try {
+      await PushMessagingService.instance.unregister();
       await Supabase.instance.client.auth.signOut();
     } catch (_) {
       if (mounted) {

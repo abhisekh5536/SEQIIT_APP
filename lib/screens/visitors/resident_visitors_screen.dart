@@ -13,6 +13,7 @@ import 'pre_approve_bottom_sheet.dart';
 import 'visitor_detail_screen.dart';
 import 'widgets/live_status_chip.dart';
 import 'widgets/visitor_card.dart';
+import 'widgets/visitor_entrance.dart';
 
 class ResidentVisitorsScreen extends StatefulWidget {
   final bool showBack;
@@ -39,6 +40,10 @@ class _ResidentVisitorsScreenState extends State<ResidentVisitorsScreen>
 
   bool _promptOpen = false;
 
+  /// Visitors that just arrived live; their cards slide in once.
+  final Set<String> _freshIds = {};
+  Timer? _freshClear;
+
   @override
   void initState() {
     super.initState();
@@ -51,6 +56,7 @@ class _ResidentVisitorsScreenState extends State<ResidentVisitorsScreen>
   @override
   void dispose() {
     _liveSub?.cancel();
+    _freshClear?.cancel();
     VisitorsService.instance.removeListener(_onServiceChanged);
     _tabController.dispose();
     super.dispose();
@@ -91,6 +97,7 @@ class _ResidentVisitorsScreenState extends State<ResidentVisitorsScreen>
       if (idx != -1) {
         _visitors[idx] = v;
       } else {
+        _markFresh([v.id]);
         _visitors.insert(0, v);
       }
     });
@@ -99,6 +106,14 @@ class _ResidentVisitorsScreenState extends State<ResidentVisitorsScreen>
       _promptedIds.add(v.id);
       _promptForApproval(v);
     }
+  }
+
+  /// Marks [ids] to animate in on the next build, then forgets them so a
+  /// later rebuild (tab switch, scroll back) does not replay the entrance.
+  void _markFresh(Iterable<String> ids) {
+    _freshIds.addAll(ids);
+    _freshClear?.cancel();
+    _freshClear = Timer(const Duration(milliseconds: 1500), _freshIds.clear);
   }
 
   /// Puts the approve/deny sheet straight in front of the resident.
@@ -132,6 +147,12 @@ class _ResidentVisitorsScreenState extends State<ResidentVisitorsScreen>
       final list = await VisitorsService.instance.fetchResidentVisitors();
       if (mounted) {
         setState(() {
+          // A background refresh (e.g. polling while offline) can surface
+          // visitors too; animate those in like live arrivals.
+          if (silent) {
+            final known = _visitors.map((x) => x.id).toSet();
+            _markFresh(list.map((x) => x.id).where((id) => !known.contains(id)));
+          }
           _visitors = list;
           _loading = false;
         });
@@ -367,17 +388,21 @@ class _ResidentVisitorsScreenState extends State<ResidentVisitorsScreen>
         separatorBuilder: (_, _) => const SizedBox(height: 10),
         itemBuilder: (context, index) {
           final visitor = visitors[index];
-          return VisitorCard(
-            visitor: visitor,
-            onTap: () {
-              HapticFeedback.lightImpact();
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => VisitorDetailScreen(visitorId: visitor.id),
-                ),
-              ).then((_) => _loadVisitors());
-            },
+          return VisitorEntrance(
+            key: ValueKey(visitor.id),
+            animate: _freshIds.contains(visitor.id),
+            child: VisitorCard(
+              visitor: visitor,
+              onTap: () {
+                HapticFeedback.lightImpact();
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => VisitorDetailScreen(visitorId: visitor.id),
+                  ),
+                ).then((_) => _loadVisitors());
+              },
+            ),
           );
         },
       ),

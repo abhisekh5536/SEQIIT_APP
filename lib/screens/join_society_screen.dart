@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/db_models.dart';
 import '../services/app_session.dart';
+import '../services/push_messaging_service.dart';
 import '../theme/app_theme.dart';
 
 class JoinSocietyScreen extends StatefulWidget {
@@ -236,6 +237,7 @@ class _JoinSocietyScreenState extends State<JoinSocietyScreen> {
       ),
     );
     if (confirmed == true) {
+      await PushMessagingService.instance.unregister();
       await Supabase.instance.client.auth.signOut();
     }
   }
