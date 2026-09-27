@@ -36,13 +36,26 @@ class SecurityService extends ChangeNotifier {
   // 1. Categories
   // ─────────────────────────────────────────────────────────────
 
+  /// Builds the "global OR this society" predicate.
+  ///
+  /// Interpolating the id straight into the filter string is an injection
+  /// shape — a value containing `,` or `.` would rewrite the predicate — and
+  /// an empty id produced the malformed `society_id.eq.`.
+  String? _globalOrSocietyFilter(String? societyId) {
+    final id = societyId?.trim() ?? '';
+    if (id.isEmpty) return null;
+    if (!RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(id)) return null;
+    return 'is_global.eq.true,society_id.eq.$id';
+  }
+
   Future<List<EmergencyCategory>> fetchCategories(String societyId) async {
     if (_safeClient == null) return [];
+    final filter = _globalOrSocietyFilter(societyId);
     try {
-      final res = await _client
-          .from('emergency_contact_categories')
-          .select()
-          .or('is_global.eq.true,society_id.eq.$societyId')
+      final base = _client.from('emergency_contact_categories').select();
+      final res = await (filter == null
+              ? base.eq('is_global', true)
+              : base.or(filter))
           .order('sort_order', ascending: true);
 
       final list = (res as List).cast<Map<String, dynamic>>();
@@ -131,10 +144,16 @@ class SecurityService extends ChangeNotifier {
   }) async {
     if (_safeClient == null) return [];
     try {
-      var query = _client
-          .from('emergency_contacts')
-          .select(_selectContactWithCategory)
-          .or('is_global.eq.true,society_id.eq.$societyId');
+      final filter = _globalOrSocietyFilter(societyId);
+      var query = filter == null
+          ? _client
+              .from('emergency_contacts')
+              .select(_selectContactWithCategory)
+              .eq('is_global', true)
+          : _client
+              .from('emergency_contacts')
+              .select(_selectContactWithCategory)
+              .or(filter);
 
       if (activeOnly) {
         query = query.eq('is_active', true);
@@ -214,7 +233,7 @@ class SecurityService extends ChangeNotifier {
         'alternate_phone_number': alternatePhoneNumber?.trim().isNotEmpty == true
             ? alternatePhoneNumber!.trim()
             : null,
-        if (photoUrl != null) 'photo_url': photoUrl,
+        'photo_url': ?photoUrl,
         'availability': availability.trim(),
         'sort_order': sortOrder,
         'is_active': isActive,

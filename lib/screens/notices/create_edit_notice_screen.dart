@@ -275,6 +275,8 @@ class _CreateEditNoticeScreenState extends State<CreateEditNoticeScreen> {
       return;
     }
 
+    // Captured before Navigator.pop, which disposes this context's route.
+    final messenger = ScaffoldMessenger.of(context);
     setState(() => _isSubmitting = true);
     HapticFeedback.mediumImpact();
 
@@ -381,7 +383,7 @@ class _CreateEditNoticeScreenState extends State<CreateEditNoticeScreen> {
       if (mounted) {
         setState(() => _isSubmitting = false);
         Navigator.pop(context, true);
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
           SnackBar(
             content: Text(
               asDraft
@@ -527,7 +529,7 @@ class _CreateEditNoticeScreenState extends State<CreateEditNoticeScreen> {
                         ),
                         Switch.adaptive(
                           value: _isEvent,
-                          activeColor: p.secondary,
+                          activeThumbColor: p.secondary,
                           onChanged: _onEventToggled,
                         ),
                       ],
@@ -648,43 +650,45 @@ class _CreateEditNoticeScreenState extends State<CreateEditNoticeScreen> {
                       style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
                     ),
                     const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: RadioListTile<NoticeTargetType>(
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text('All Society'),
-                            value: NoticeTargetType.all,
-                            groupValue: _targetType,
-                            onChanged: (val) {
-                              if (val != null) setState(() => _targetType = val);
-                            },
+                    // groupValue/onChanged on the tiles themselves are
+                    // deprecated; the group now owns the value and the
+                    // callback for every radio beneath it.
+                    RadioGroup<NoticeTargetType>(
+                      groupValue: _targetType,
+                      onChanged: (val) {
+                        if (val == null) return;
+                        setState(() {
+                          _targetType = val;
+                          if (val == NoticeTargetType.block &&
+                              _selectedBlockId == null &&
+                              _availableBlocks.isNotEmpty) {
+                            _selectedBlockId = _availableBlocks.first.id;
+                          }
+                        });
+                      },
+                      child: const Row(
+                        children: [
+                          Expanded(
+                            child: RadioListTile<NoticeTargetType>(
+                              contentPadding: EdgeInsets.zero,
+                              title: Text('All Society'),
+                              value: NoticeTargetType.all,
+                            ),
                           ),
-                        ),
-                        Expanded(
-                          child: RadioListTile<NoticeTargetType>(
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text('Specific Block'),
-                            value: NoticeTargetType.block,
-                            groupValue: _targetType,
-                            onChanged: (val) {
-                              if (val != null) {
-                                setState(() {
-                                  _targetType = val;
-                                  if (_selectedBlockId == null && _availableBlocks.isNotEmpty) {
-                                    _selectedBlockId = _availableBlocks.first.id;
-                                  }
-                                });
-                              }
-                            },
+                          Expanded(
+                            child: RadioListTile<NoticeTargetType>(
+                              contentPadding: EdgeInsets.zero,
+                              title: Text('Specific Block'),
+                              value: NoticeTargetType.block,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                     if (_targetType == NoticeTargetType.block) ...[
                       const SizedBox(height: 6),
                       DropdownButtonFormField<String>(
-                        value: _selectedBlockId,
+                        initialValue: _selectedBlockId,
                         decoration: InputDecoration(
                           labelText: 'Select Block',
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
@@ -789,7 +793,7 @@ class _CreateEditNoticeScreenState extends State<CreateEditNoticeScreen> {
                       title: const Text('Pin notice to top'),
                       subtitle: const Text('Keeps notice prioritized above newer updates'),
                       value: _isPinned,
-                      activeColor: p.warning,
+                      activeThumbColor: p.warning,
                       onChanged: (val) => setState(() => _isPinned = val),
                     ),
                     const Divider(height: 1),
@@ -798,7 +802,7 @@ class _CreateEditNoticeScreenState extends State<CreateEditNoticeScreen> {
                       title: const Text('Require Resident Acknowledgment'),
                       subtitle: const Text('Residents must tap "I Understand" to confirm'),
                       value: _requiresAck,
-                      activeColor: p.primary,
+                      activeThumbColor: p.primary,
                       onChanged: (val) => setState(() => _requiresAck = val),
                     ),
                   ],

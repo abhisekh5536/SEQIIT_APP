@@ -1,14 +1,18 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../../models/visitor_models.dart';
+import '../../services/app_session.dart';
 import '../../services/notifications_service.dart';
 import '../../services/visitors_service.dart';
 import '../../theme/app_theme.dart';
 import 'admin_log_visitor_screen.dart';
 import 'admin_verify_preapproval_screen.dart';
 import 'visitor_detail_screen.dart';
+import 'widgets/live_status_chip.dart';
 import 'widgets/visitor_card.dart';
 
 class AdminVisitorsDashboard extends StatefulWidget {
@@ -26,29 +30,178 @@ class _AdminVisitorsDashboardState extends State<AdminVisitorsDashboard> {
   String? _error;
   List<VisitorRecord> _visitors = [];
   String _statusFilter = 'all';
-  String _categoryFilter = 'all';
+  final String _categoryFilter = 'all';
   DateTime? _dateFilter;
   String _searchQuery = '';
   final _searchCtrl = TextEditingController();
+
+  StreamSubscription<VisitorLiveEvent>? _liveSub;
+  Timer? _searchDebounce;
 
   @override
   void initState() {
     super.initState();
     NotificationsService.instance.markModuleAsRead('visitor');
     _loadVisitors();
+    _startLive();
   }
 
   @override
   void dispose() {
+    _liveSub?.cancel();
+    _searchDebounce?.cancel();
+    VisitorsService.instance.removeListener(_onServiceChanged);
     _searchCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _loadVisitors() async {
+  /// Opens the live feed so a resident's decision lands on this screen by
+  /// itself, instead of the gate staff pulling to refresh until it shows.
+  void _startLive() {
+    final societyId = AppSession.instance.societyId;
+    if (societyId == null || societyId.isEmpty) return;
+
+    VisitorsService.instance.initRealtime(societyId);
+    VisitorsService.instance.addListener(_onServiceChanged);
+    _liveSub = VisitorsService.instance.onVisitorEvent.listen(_onLiveEvent);
+  }
+
+  void _onServiceChanged() {
+    if (!mounted) return;
+    // While the socket is down the service ticks listeners on a timer, so
+    // the list keeps moving — just more slowly than live.
+    if (!VisitorsService.instance.isLive) {
+      _loadVisitors(silent: true);
+    }
+    setState(() {});
+  }
+
+  void _onLiveEvent(VisitorLiveEvent event) {
+    if (!mounted) return;
+    _applyLiveUpdate(event.visitor);
+
+    // Announce after the list has the new row, so tapping "View" from the
+    // snackbar lands on something that is already on screen.
+    if (event.isApprovalDecision) {
+      _announceDecision(event.visitor);
+    } else if (event.isNewGateRequest) {
+      HapticFeedback.lightImpact();
+    }
+  }
+
+  /// True when category, date or search narrowing is on. Those are applied
+  /// server-side (and search partly in the service), so a single changed row
+  /// cannot be judged against them here.
+  bool get _hasServerSideFilters =>
+      _categoryFilter != 'all' || _dateFilter != null || _searchQuery.isNotEmpty;
+
+  /// Splices the changed row into the list in place, so an update does not
+  /// cost the guard their scroll position. When filters beyond status are
+  /// active the row cannot be judged locally, so re-query instead of
+  /// guessing — a wrongly spliced row would be worse than a short delay.
+  void _applyLiveUpdate(VisitorRecord updated) {
+    if (_hasServerSideFilters) {
+      _loadVisitors(silent: true);
+      return;
+    }
+
+    final matchesFilter =
+        _statusFilter == 'all' || updated.status.dbValue == _statusFilter;
+
     setState(() {
-      _loading = true;
-      _error = null;
+      final idx = _visitors.indexWhere((v) => v.id == updated.id);
+      if (idx != -1) {
+        if (matchesFilter) {
+          _visitors[idx] = updated;
+        } else {
+          _visitors.removeAt(idx);
+        }
+      } else if (matchesFilter) {
+        _visitors.insert(0, updated);
+      }
     });
+  }
+
+  /// The moment that matters: the resident answered while someone is held
+  /// at the barrier. Say it loudly and say what to do.
+  void _announceDecision(VisitorRecord v) {
+    final approved = v.status == VisitorStatus.approved;
+    final p = AppTheme.paletteFor(Theme.of(context).brightness);
+    HapticFeedback.heavyImpact();
+
+    final code = v.approvalCode;
+    final reason = v.deniedReason;
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 6),
+          backgroundColor: approved ? p.success : p.danger,
+          behavior: SnackBarBehavior.floating,
+          content: Row(
+            children: [
+              Icon(
+                approved ? Icons.check_circle_rounded : Icons.cancel_rounded,
+                color: Colors.white,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      approved
+                          ? '${v.visitorName} - allow entry'
+                          : '${v.visitorName} - do not allow',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Text(
+                      approved
+                          ? '${v.flatDisplay} approved${(code != null && code.isNotEmpty) ? ' · code $code' : ''}'
+                          : '${v.flatDisplay} denied${(reason != null && reason.isNotEmpty) ? ' · $reason' : ''}',
+                      style: const TextStyle(color: Colors.white, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          action: SnackBarAction(
+            label: 'View',
+            textColor: Colors.white,
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => VisitorDetailScreen(visitorId: v.id),
+              ),
+            ).then((_) => _loadVisitors()),
+          ),
+        ),
+      );
+  }
+
+  /// Search fired a query per keystroke; debounce it so typing a flat
+  /// number does not queue half a dozen round trips.
+  void _onSearchChanged(String q) {
+    _searchQuery = q;
+    _searchDebounce?.cancel();
+    _searchDebounce =
+        Timer(const Duration(milliseconds: 350), () => _loadVisitors());
+    setState(() {});
+  }
+
+  Future<void> _loadVisitors({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
 
     try {
       final list = await VisitorsService.instance.fetchSocietyVisitors(
@@ -116,6 +269,11 @@ class _AdminVisitorsDashboardState extends State<AdminVisitorsDashboard> {
                       ),
                     ),
                   ),
+                  LiveStatusChip(
+                    status: VisitorsService.instance.liveStatus,
+                    onRefresh: _loadVisitors,
+                  ),
+                  const SizedBox(width: 8),
                   // Verify button
                   IconButton(
                     onPressed: () => Navigator.push(
@@ -176,10 +334,7 @@ class _AdminVisitorsDashboardState extends State<AdminVisitorsDashboard> {
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: TextField(
                 controller: _searchCtrl,
-                onChanged: (q) {
-                  _searchQuery = q;
-                  _loadVisitors();
-                },
+                onChanged: _onSearchChanged,
                 decoration: InputDecoration(
                   hintText: 'Search by name, phone, flat, or code...',
                   prefixIcon: const Icon(Icons.search_rounded, size: 20),
@@ -187,8 +342,7 @@ class _AdminVisitorsDashboardState extends State<AdminVisitorsDashboard> {
                       ? IconButton(
                           onPressed: () {
                             _searchCtrl.clear();
-                            _searchQuery = '';
-                            _loadVisitors();
+                            _onSearchChanged('');
                           },
                           icon: const Icon(Icons.clear_rounded, size: 18),
                         )
@@ -348,7 +502,7 @@ class _AdminVisitorsDashboardState extends State<AdminVisitorsDashboard> {
                                 padding: const EdgeInsets.fromLTRB(
                                     16, 4, 16, 100),
                                 itemCount: _visitors.length,
-                                separatorBuilder: (_, __) =>
+                                separatorBuilder: (_, _) =>
                                     const SizedBox(height: 10),
                                 itemBuilder: (context, index) {
                                   final v = _visitors[index];

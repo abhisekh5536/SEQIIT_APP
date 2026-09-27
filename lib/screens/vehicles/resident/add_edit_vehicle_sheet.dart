@@ -1,4 +1,7 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../../models/vehicle_parking_models.dart';
 import '../../../services/vehicles_parking_service.dart';
@@ -57,6 +60,11 @@ class _AddEditVehicleSheetState extends State<AddEditVehicleSheet> {
   bool _submitting = false;
   String? _error;
 
+  Uint8List? _rcBytes;
+  String? _rcExtension;
+  String? _rcFileName;
+  String? _existingRcUrl;
+
   bool get _isEdit => widget.existingVehicle != null;
 
   @override
@@ -69,6 +77,7 @@ class _AddEditVehicleSheetState extends State<AddEditVehicleSheet> {
     _colorController =
         TextEditingController(text: widget.existingVehicle?.color ?? '');
     _type = widget.existingVehicle?.type ?? VehicleType.fourWheeler;
+    _existingRcUrl = widget.existingVehicle?.rcPhotoUrl;
   }
 
   @override
@@ -79,6 +88,106 @@ class _AddEditVehicleSheetState extends State<AddEditVehicleSheet> {
     super.dispose();
   }
 
+  Future<void> _pickRcImage(ImageSource source) async {
+    try {
+      final picker = ImagePicker();
+      final picked = await picker.pickImage(
+        source: source,
+        maxWidth: 1600,
+        maxHeight: 1600,
+        imageQuality: 85,
+      );
+
+      if (picked != null) {
+        final bytes = await picked.readAsBytes();
+        final ext = picked.name.contains('.')
+            ? picked.name.split('.').last.toLowerCase()
+            : 'jpg';
+        setState(() {
+          _rcBytes = bytes;
+          _rcExtension = ext;
+          _rcFileName = picked.name;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error picking RC image: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not attach RC photo: $e')),
+        );
+      }
+    }
+  }
+
+  void _showRcSourceDialog() {
+    final p = AppTheme.paletteFor(Theme.of(context).brightness);
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: p.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: p.hairline,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Attach Registration Certificate (RC)',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: p.primary.withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(Icons.camera_alt_rounded, color: p.primary),
+                ),
+                title: const Text('Take photo of RC'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _pickRcImage(ImageSource.camera);
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF10B981).withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.photo_library_rounded,
+                      color: Color(0xFF10B981)),
+                ),
+                title: const Text('Choose from Gallery / Files'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _pickRcImage(ImageSource.gallery);
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() {
@@ -86,6 +195,14 @@ class _AddEditVehicleSheetState extends State<AddEditVehicleSheet> {
       _error = null;
     });
     try {
+      String? photoUrl = _existingRcUrl;
+      if (_rcBytes != null && _rcExtension != null) {
+        photoUrl = await VehiclesParkingService.instance.uploadRcPhoto(
+          bytes: _rcBytes!,
+          fileExtension: _rcExtension!,
+        );
+      }
+
       if (_isEdit) {
         await VehiclesParkingService.instance.updateVehicle(
           vehicleId: widget.existingVehicle!.id,
@@ -93,6 +210,7 @@ class _AddEditVehicleSheetState extends State<AddEditVehicleSheet> {
           makeModel: _makeController.text.trim(),
           color: _colorController.text.trim(),
           type: _type,
+          rcPhotoUrl: photoUrl,
         );
       } else {
         await VehiclesParkingService.instance.registerVehicle(
@@ -105,6 +223,7 @@ class _AddEditVehicleSheetState extends State<AddEditVehicleSheet> {
           color: _colorController.text.trim().isNotEmpty
               ? _colorController.text.trim()
               : null,
+          rcPhotoUrl: photoUrl,
         );
       }
       widget.onSaved();
@@ -262,6 +381,119 @@ class _AddEditVehicleSheetState extends State<AddEditVehicleSheet> {
                   hintText: 'White, grey, red…',
                 ),
               ),
+              const SizedBox(height: 16),
+
+              const FieldLabel('RC Document (Optional)'),
+              if (_rcBytes != null)
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: p.cardMuted,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: p.hairline),
+                  ),
+                  child: Row(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.memory(
+                          _rcBytes!,
+                          width: 50,
+                          height: 50,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _rcFileName ?? 'RC Photo Attached',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                              ),
+                            ),
+                            Text(
+                              'Ready to upload',
+                              style: TextStyle(
+                                color: p.textSecondary,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => setState(() {
+                          _rcBytes = null;
+                          _rcExtension = null;
+                          _rcFileName = null;
+                        }),
+                        icon: const Icon(Icons.close_rounded, size: 20),
+                        tooltip: 'Remove',
+                      ),
+                    ],
+                  ),
+                )
+              else if (_existingRcUrl != null && _existingRcUrl!.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: p.cardMuted,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: p.hairline),
+                  ),
+                  child: Row(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.network(
+                          _existingRcUrl!,
+                          width: 50,
+                          height: 50,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, _, _) => Container(
+                            width: 50,
+                            height: 50,
+                            color: p.card,
+                            child: const Icon(Icons.insert_drive_file_outlined),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Text(
+                          'RC Photo On File',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: _showRcSourceDialog,
+                        child: const Text('Change'),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                OutlinedButton.icon(
+                  onPressed: _showRcSourceDialog,
+                  icon: const Icon(Icons.upload_file_rounded, size: 18),
+                  label: const Text('Upload RC Photo'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                        vertical: 12, horizontal: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
               const SizedBox(height: 20),
 
               SizedBox(

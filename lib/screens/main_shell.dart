@@ -7,6 +7,7 @@ import 'directory_screen.dart';
 import 'home_screen.dart';
 import 'my_flat_screen.dart';
 import 'notices_screen.dart';
+import 'vehicles/guard/vehicle_gate_lookup_screen.dart';
 import 'settings_screen.dart';
 
 class MainShell extends StatefulWidget {
@@ -27,11 +28,18 @@ class _MainShellState extends State<MainShell> {
       animation: AppSession.instance,
       builder: (context, _) {
         final isAdmin = AppSession.instance.isAdmin;
+        final isGuard = AppSession.instance.isGuard;
 
+        // A guard has no flat, so the third slot becomes the gate register
+        // instead of "My Flat" — which would be empty for them.
         final pages = [
           const HomeScreen(),
           const NoticesScreen(),
-          if (isAdmin)
+          if (isGuard)
+            // Its own header and SafeArea, like every other shell page, but
+            // no back arrow — this is a tab, not a pushed route.
+            const VehicleGateLookupScreen(showBack: false)
+          else if (isAdmin)
             const DirectoryScreen()
           else
             const MyFlatScreen(),
@@ -45,13 +53,15 @@ class _MainShellState extends State<MainShell> {
             index: safeIndex,
             children: pages,
           ),
-          bottomNavigationBar: _buildNavBar(context, isAdmin, safeIndex),
+          bottomNavigationBar:
+              _buildNavBar(context, isAdmin, isGuard, safeIndex),
         );
       },
     );
   }
 
-  Widget _buildNavBar(BuildContext context, bool isAdmin, int selectedIndex) {
+  Widget _buildNavBar(
+      BuildContext context, bool isAdmin, bool isGuard, int selectedIndex) {
     final p = Theme.of(context).colorScheme;
     final palette = AppTheme.paletteFor(Theme.of(context).brightness);
 
@@ -74,7 +84,13 @@ class _MainShellState extends State<MainShell> {
             selectedIcon: Icon(Icons.campaign_rounded),
             label: 'Notices',
           ),
-          if (isAdmin)
+          if (isGuard)
+            const NavigationDestination(
+              icon: Icon(Icons.shield_outlined),
+              selectedIcon: Icon(Icons.shield_rounded),
+              label: 'Gate',
+            )
+          else if (isAdmin)
             const NavigationDestination(
               icon: Icon(Icons.people_outline_rounded),
               selectedIcon: Icon(Icons.people_rounded),
@@ -95,4 +111,4 @@ class _MainShellState extends State<MainShell> {
       ),
     );
   }
-}
+}

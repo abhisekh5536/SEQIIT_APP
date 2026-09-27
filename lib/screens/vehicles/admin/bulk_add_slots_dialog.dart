@@ -80,6 +80,8 @@ class _BulkAddSlotsDialogState extends State<BulkAddSlotsDialog> {
       _submitting = true;
       _error = null;
     });
+    // Captured before Navigator.pop, which disposes this context's route.
+    final messenger = ScaffoldMessenger.of(context);
     try {
       final n = await VehiclesParkingService.instance.bulkCreateSlots(
         societyId: widget.societyId,
@@ -93,7 +95,7 @@ class _BulkAddSlotsDialogState extends State<BulkAddSlotsDialog> {
       widget.onGenerated();
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
           SnackBar(content: Text('$n bays added')),
         );
       }

@@ -37,14 +37,27 @@ class AppSession extends ChangeNotifier {
   ResidentJoinRequest? _pendingJoinRequest;
   int _pendingApprovalsCount = 0;
 
+  bool _isGuard = false;
+
   bool get isLoading => _loading;
   bool get isLoaded => _loaded;
   bool get isAdmin => _isAdmin;
+
+  /// True when this account is a gate guard.
+  ///
+  /// The only marker the schema has for this is the `role` claim on the
+  /// auth user — `public.is_guard_or_admin()` reads exactly the same claim,
+  /// so client routing and RLS agree on who a guard is. Set it with
+  /// `auth.admin.updateUserById(id, userMetadata: {'role': 'guard',
+  /// 'society_id': '...'})` with the society's uuid.
+  bool get isGuard => _isGuard;
+
   bool get isUnlinkedUser =>
       _loaded &&
       _client != null &&
       _client?.auth.currentUser != null &&
       !_isAdmin &&
+      !_isGuard &&
       _myResidences.isEmpty;
   String? get adminName => _adminName;
   String? get societyId => _societyId;
@@ -165,10 +178,20 @@ class AppSession extends ChangeNotifier {
       }
 
       _isAdmin = adminRows.isNotEmpty;
+
+      final meta = user.userMetadata ?? const <String, dynamic>{};
+      final metaRole = (meta['role'] ?? '').toString().toLowerCase().trim();
+      _isGuard = !_isAdmin && (metaRole == 'guard' || metaRole == 'security');
+      final metaSocietyId = meta['society_id']?.toString();
+
       _adminName = _isAdmin ? adminRows.first['name'] as String? : null;
       _societyId = _isAdmin
           ? adminRows.first['society_id'] as String?
-          : (records.isNotEmpty ? records.first.societyId : null);
+          : (records.isNotEmpty
+              ? records.first.societyId
+              : (metaSocietyId != null && metaSocietyId.isNotEmpty
+                  ? metaSocietyId
+                  : null));
       _myResidences = List.unmodifiable(records);
       _myFlats = Map.unmodifiable(flats);
 
@@ -305,6 +328,7 @@ class AppSession extends ChangeNotifier {
   void reset() {
     _loaded = false;
     _isAdmin = false;
+    _isGuard = false;
     _adminName = null;
     _societyId = null;
     _societyName = null;

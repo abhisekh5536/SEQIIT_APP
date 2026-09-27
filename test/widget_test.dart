@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:society_management/main.dart';
-import 'package:society_management/screens/admin_vehicles_screen.dart';
+import 'package:society_management/screens/vehicles/admin/admin_vehicles_parking_dashboard.dart';
 import 'package:society_management/screens/home_screen.dart';
 import 'package:society_management/screens/main_shell.dart';
 import 'package:society_management/theme/app_theme.dart';
@@ -110,25 +110,42 @@ void main() {
     expect(find.text('Maintenance due'), findsNothing);
   });
 
-  testWidgets('AdminVehiclesScreen renders vehicle stats, search, and list',
+  testWidgets('AdminVehiclesParkingDashboard renders bays, allotted, vehicles tabs',
       (WidgetTester tester) async {
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.light(),
         home: const Scaffold(
-          body: AdminVehiclesScreen(),
+          body: AdminVehiclesParkingDashboard(showBack: false),
         ),
       ),
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Vehicles & Parking'), findsOneWidget);
-    expect(find.text('Registered'), findsOneWidget);
-    expect(find.text('Allotted Slot'), findsOneWidget);
-    expect(find.text('Unassigned'), findsOneWidget);
-    expect(find.textContaining('Creta'), findsOneWidget);
-    expect(find.textContaining('P-101'), findsOneWidget);
-    expect(find.text('Add vehicle'), findsOneWidget);
+    expect(find.text('Parking & Vehicles'), findsOneWidget);
+    expect(find.text('Bays'), findsWidgets);
+    expect(find.text('Requests'), findsWidgets);
+    expect(find.text('Allotted'), findsWidgets);
+    expect(find.text('Vehicles'), findsWidgets);
+    expect(find.text('Gate'), findsWidgets);
+  });
+
+  testWidgets('Bay requests tab shows an empty queue rather than sample rows',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(),
+        home: const Scaffold(
+          body: AdminVehiclesParkingDashboard(showBack: false),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Requests'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('No bay requests'), findsOneWidget);
   });
 }
 

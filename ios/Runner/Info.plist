@@ -15,7 +15,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>society_management</string>
+	<string>Saqiit</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -26,6 +26,34 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- iOS terminates the app on first use of a protected resource with no
+	     usage string. image_picker is used for visitor photos, complaint
+	     photos, notice images and vehicle RC documents. -->
+	<key>NSCameraUsageDescription</key>
+	<string>Saqiit uses the camera to capture visitor and vehicle photos at the gate.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Saqiit lets you attach photos to complaints, notices and visitor records.</string>
+	<!-- Required for canLaunchUrl('tel:') to return true, which the emergency
+	     contacts and the guard's call-resident action depend on. -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>tel</string>
+		<string>https</string>
+	</array>
+	<!-- Supabase auth callback (Google sign-in, password reset). -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>supabase-auth-callback</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>io.supabase.saqiit</string>
+			</array>
+		</dict>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
