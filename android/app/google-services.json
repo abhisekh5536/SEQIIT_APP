@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "181927587927",
+    "project_id": "seqiit-5bfed",
+    "storage_bucket": "seqiit-5bfed.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:181927587927:android:b5d6abad0eebfdc820b312",
+        "android_client_info": {
+          "package_name": "com.example.society_management"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD_oJ86uv6VcO0gMtk1JmZXeaOhyAin52A"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

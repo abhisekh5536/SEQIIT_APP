@@ -14,6 +14,7 @@ import 'admin_verify_preapproval_screen.dart';
 import 'visitor_detail_screen.dart';
 import 'widgets/live_status_chip.dart';
 import 'widgets/visitor_card.dart';
+import 'widgets/visitor_entrance.dart';
 
 class AdminVisitorsDashboard extends StatefulWidget {
   final bool showBack;
@@ -38,6 +39,10 @@ class _AdminVisitorsDashboardState extends State<AdminVisitorsDashboard> {
   StreamSubscription<VisitorLiveEvent>? _liveSub;
   Timer? _searchDebounce;
 
+  /// Visitors that just arrived live; their cards slide in once.
+  final Set<String> _freshIds = {};
+  Timer? _freshClear;
+
   @override
   void initState() {
     super.initState();
@@ -50,6 +55,7 @@ class _AdminVisitorsDashboardState extends State<AdminVisitorsDashboard> {
   void dispose() {
     _liveSub?.cancel();
     _searchDebounce?.cancel();
+    _freshClear?.cancel();
     VisitorsService.instance.removeListener(_onServiceChanged);
     _searchCtrl.dispose();
     super.dispose();
@@ -117,9 +123,18 @@ class _AdminVisitorsDashboardState extends State<AdminVisitorsDashboard> {
           _visitors.removeAt(idx);
         }
       } else if (matchesFilter) {
+        _markFresh([updated.id]);
         _visitors.insert(0, updated);
       }
     });
+  }
+
+  /// Marks [ids] to animate in on the next build, then forgets them so a
+  /// later rebuild (tab switch, scroll back) does not replay the entrance.
+  void _markFresh(Iterable<String> ids) {
+    _freshIds.addAll(ids);
+    _freshClear?.cancel();
+    _freshClear = Timer(const Duration(milliseconds: 1500), _freshIds.clear);
   }
 
   /// The moment that matters: the resident answered while someone is held
@@ -212,6 +227,11 @@ class _AdminVisitorsDashboardState extends State<AdminVisitorsDashboard> {
       );
       if (mounted) {
         setState(() {
+          // Rows a background refresh brought in animate like live arrivals.
+          if (silent) {
+            final known = _visitors.map((x) => x.id).toSet();
+            _markFresh(list.map((x) => x.id).where((id) => !known.contains(id)));
+          }
           _visitors = list;
           _loading = false;
         });
@@ -506,19 +526,23 @@ class _AdminVisitorsDashboardState extends State<AdminVisitorsDashboard> {
                                     const SizedBox(height: 10),
                                 itemBuilder: (context, index) {
                                   final v = _visitors[index];
-                                  return VisitorCard(
-                                    visitor: v,
-                                    onTap: () {
-                                      HapticFeedback.lightImpact();
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) =>
-                                              VisitorDetailScreen(
-                                                  visitorId: v.id),
-                                        ),
-                                      ).then((_) => _loadVisitors());
-                                    },
+                                  return VisitorEntrance(
+                                    key: ValueKey(v.id),
+                                    animate: _freshIds.contains(v.id),
+                                    child: VisitorCard(
+                                      visitor: v,
+                                      onTap: () {
+                                        HapticFeedback.lightImpact();
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) =>
+                                                VisitorDetailScreen(
+                                                    visitorId: v.id),
+                                          ),
+                                        ).then((_) => _loadVisitors());
+                                      },
+                                    ),
                                   );
                                 },
                               ),

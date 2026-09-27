@@ -46,3 +46,10 @@ app.*.map.json
 
 # Environment / secrets
 .env
+
+# Firebase service-account keys (server secrets, never commit)
+*firebase-adminsdk*.json
+service-account*.json
+
+# Supabase CLI local state
+supabase/.temp/
