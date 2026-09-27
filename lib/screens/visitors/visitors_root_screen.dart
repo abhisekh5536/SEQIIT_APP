@@ -20,7 +20,9 @@ class VisitorsRootScreen extends StatelessWidget {
           );
         }
 
-        if (AppSession.instance.isAdmin) {
+        // A guard works the gate register, not a personal visitor list —
+        // they have no flat, so the resident screen would be empty for them.
+        if (AppSession.instance.isAdmin || AppSession.instance.isGuard) {
           return AdminVisitorsDashboard(showBack: showBack);
         } else {
           return ResidentVisitorsScreen(showBack: showBack);

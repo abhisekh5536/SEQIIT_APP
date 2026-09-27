@@ -342,7 +342,7 @@ class _GateApprovalModalState extends State<GateApprovalModal> {
               width: double.infinity,
               height: 220,
               fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => _photoPlaceholder(p, v),
+              errorBuilder: (_, _, _) => _photoPlaceholder(p, v),
             ),
           );
         } catch (_) {}
@@ -354,7 +354,7 @@ class _GateApprovalModalState extends State<GateApprovalModal> {
           width: double.infinity,
           height: 220,
           fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => _photoPlaceholder(p, v),
+          errorBuilder: (_, _, _) => _photoPlaceholder(p, v),
         ),
       );
     }
@@ -409,6 +409,8 @@ class _GateApprovalModalState extends State<GateApprovalModal> {
   }
 
   Future<void> _approve() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final palette = AppTheme.paletteFor(Theme.of(context).brightness);
     setState(() => _processing = true);
     try {
       await VisitorsService.instance.respondToVisitorRequest(
@@ -418,22 +420,18 @@ class _GateApprovalModalState extends State<GateApprovalModal> {
       widget.onResponded?.call();
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
           SnackBar(
             content: const Text('Visitor approved! ✅'),
-            backgroundColor:
-                AppTheme.paletteFor(Theme.of(context).brightness).success,
+            backgroundColor: palette.success,
           ),
         );
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text('Error: $e'),
-              backgroundColor: Colors.redAccent),
-        );
-      }
+      messenger.showSnackBar(
+        SnackBar(
+            content: Text('Error: $e'), backgroundColor: Colors.redAccent),
+      );
     } finally {
       if (mounted) setState(() => _processing = false);
     }
@@ -450,6 +448,8 @@ class _GateApprovalModalState extends State<GateApprovalModal> {
       return;
     }
 
+    final messenger = ScaffoldMessenger.of(context);
+    final palette = AppTheme.paletteFor(Theme.of(context).brightness);
     setState(() => _processing = true);
     try {
       await VisitorsService.instance.respondToVisitorRequest(
@@ -460,22 +460,18 @@ class _GateApprovalModalState extends State<GateApprovalModal> {
       widget.onResponded?.call();
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
           SnackBar(
             content: const Text('Visitor denied'),
-            backgroundColor:
-                AppTheme.paletteFor(Theme.of(context).brightness).danger,
+            backgroundColor: palette.danger,
           ),
         );
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text('Error: $e'),
-              backgroundColor: Colors.redAccent),
-        );
-      }
+      messenger.showSnackBar(
+        SnackBar(
+            content: Text('Error: $e'), backgroundColor: Colors.redAccent),
+      );
     } finally {
       if (mounted) setState(() => _processing = false);
     }

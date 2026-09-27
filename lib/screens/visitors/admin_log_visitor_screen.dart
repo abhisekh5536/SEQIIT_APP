@@ -446,7 +446,7 @@ class _AdminLogVisitorScreenState extends State<AdminLogVisitorScreen> {
           )
         else
           DropdownButtonFormField<String>(
-            value: _selectedFlatId,
+            initialValue: _selectedFlatId,
             validator: (v) =>
                 v == null || v.trim().isEmpty ? 'Select a flat' : null,
             decoration: InputDecoration(
@@ -586,7 +586,7 @@ class _AdminLogVisitorScreenState extends State<AdminLogVisitorScreen> {
                         : ListView.separated(
                             padding: const EdgeInsets.fromLTRB(20, 6, 20, 20),
                             itemCount: filtered.length,
-                            separatorBuilder: (_, __) =>
+                            separatorBuilder: (_, _) =>
                                 Divider(color: p.hairline, height: 1),
                             itemBuilder: (ctx, i) {
                               final f = filtered[i];
@@ -816,6 +816,10 @@ class _AdminLogVisitorScreenState extends State<AdminLogVisitorScreen> {
   Future<void> _submit() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
+    // Captured before Navigator.pop, which disposes this context's route.
+    final messenger = ScaffoldMessenger.of(context);
+    final palette = AppTheme.paletteFor(Theme.of(context).brightness);
+
     setState(() => _submitting = true);
 
     try {
@@ -865,12 +869,11 @@ class _AdminLogVisitorScreenState extends State<AdminLogVisitorScreen> {
 
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
           SnackBar(
             content: const Text(
                 'Visitor logged! Waiting for resident approval.'),
-            backgroundColor:
-                AppTheme.paletteFor(Theme.of(context).brightness).success,
+            backgroundColor: palette.success,
           ),
         );
       }

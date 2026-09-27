@@ -8,6 +8,7 @@ import '../../../services/vehicles_parking_service.dart';
 import '../../../theme/app_theme.dart';
 import '../widgets/vehicle_parking_widgets.dart';
 import 'add_edit_vehicle_sheet.dart';
+import 'request_bay_sheet.dart';
 
 class ResidentVehiclesParkingScreen extends StatefulWidget {
   final bool showBack;
@@ -28,12 +29,21 @@ class _ResidentVehiclesParkingScreenState
   List<VehicleItem> _myVehicles = [];
   List<ParkingAllocationItem> _myAllocations = [];
 
+  /// The flat's open request with the society office, or its most recent
+  /// refusal. Read from the server, so it survives a reinstall and is the
+  /// same on every device the resident signs in on.
+  ParkingBayRequestItem? _bayRequest;
+  String? _loadError;
+
+  /// Empty when the account is not linked to a flat yet. Never a
+  /// placeholder id — Postgres would reject it as a malformed uuid and the
+  /// screen would show a confusing failure instead of a clear prompt.
   String get _flatId {
     final session = AppSession.instance;
     return session.primaryResidence?.flatId ??
         (session.myResidences.isNotEmpty
             ? session.myResidences.first.flatId
-            : 'f-101');
+            : '');
   }
 
   String get _societyId {
@@ -42,8 +52,10 @@ class _ResidentVehiclesParkingScreenState
         session.primaryResidence?.societyId ??
         (session.myResidences.isNotEmpty
             ? session.myResidences.first.societyId
-            : 'soc-1');
+            : '');
   }
+
+  bool get _isLinked => _flatId.isNotEmpty && _societyId.isNotEmpty;
 
   String? get _residentId {
     final session = AppSession.instance;
@@ -72,26 +84,120 @@ class _ResidentVehiclesParkingScreenState
   }
 
   Future<void> _loadData() async {
-    setState(() => _isLoading = true);
+    if (!_isLinked) {
+      setState(() {
+        _isLoading = false;
+        _loadError = 'This account is not linked to a flat yet. '
+            'Once the society office approves your flat, your vehicles and '
+            'bays will show up here.';
+      });
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _loadError = null;
+    });
+    final service = VehiclesParkingService.instance;
     try {
       final results = await Future.wait([
-        VehiclesParkingService.instance.fetchMyFlatVehicles(_flatId),
-        VehiclesParkingService.instance.fetchAllocations(
+        service.fetchMyFlatVehicles(_flatId),
+        service.fetchAllocations(
           societyId: _societyId,
           flatId: _flatId,
           status: AllocationStatus.active,
         ),
+        service.fetchMyPendingBayRequest(
+          societyId: _societyId,
+          flatId: _flatId,
+        ),
+        service.fetchParkingPolicy(_societyId),
       ]);
-      if (mounted) {
-        setState(() {
-          _myVehicles = results[0] as List<VehicleItem>;
-          _myAllocations = results[1] as List<ParkingAllocationItem>;
-          _isLoading = false;
-        });
-      }
-    } catch (_) {
-      if (mounted) setState(() => _isLoading = false);
+      if (!mounted) return;
+      setState(() {
+        _myVehicles = results[0] as List<VehicleItem>;
+        _myAllocations = results[1] as List<ParkingAllocationItem>;
+        _bayRequest = results[2] as ParkingBayRequestItem?;
+        _loadError = service.errorFor('myVehicles') ??
+            service.errorFor('allocations');
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _loadError = e.toString().replaceFirst('Exception: ', '');
+      });
     }
+  }
+
+  Future<void> _withdrawRequest() async {
+    final req = _bayRequest;
+    if (req == null || !req.isPending) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Withdraw this request?'),
+        content: const Text(
+          'The society office will no longer see this bay request. '
+          'You can raise a fresh one any time.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Keep it'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(ctx).colorScheme.error),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Withdraw'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      await VehiclesParkingService.instance.cancelBayRequest(
+        requestId: req.id,
+        societyId: _societyId,
+        flatId: _flatId,
+      );
+      await _loadData();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Request withdrawn'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceFirst('Exception: ', '')),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  void _openRequestBaySheet([VehicleItem? vehicle]) {
+    HapticFeedback.lightImpact();
+    RequestBaySheet.show(
+      context,
+      societyId: _societyId,
+      flatId: _flatId,
+      residentId: _residentId,
+      vehicles: _myVehicles,
+      initialVehicle: vehicle,
+      onSubmitted: _loadData,
+      onRegisterVehicle: () => _openAddVehicleSheet(),
+    );
   }
 
   void _openAddVehicleSheet([VehicleItem? vehicle]) {
@@ -112,7 +218,8 @@ class _ResidentVehiclesParkingScreenState
       builder: (ctx) => AlertDialog(
         title: const Text('Remove this vehicle?'),
         content: Text(
-          '${v.makeModel} (${v.formattedPlate}) will stop appearing for gate clearance under $_flatSubtitle. You can re-register it later.',
+          '${v.makeModel} (${v.formattedPlate}) will stop appearing for gate clearance under $_flatSubtitle. You can re-register it later.'
+          '${v.hasAllocatedSlot ? '\n\nBay ${v.allocatedSlotNumber} stays with your flat — it is simply no longer tied to this vehicle. Contact the society office to surrender it.' : ''}',
         ),
         actions: [
           TextButton(
@@ -173,24 +280,40 @@ class _ResidentVehiclesParkingScreenState
             Expanded(
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator())
-                  : TabBarView(
-                      controller: _tabController,
-                      children: [
-                        _buildVehiclesTab(),
-                        _buildBaysTab(),
-                      ],
-                    ),
+                  : _loadError != null
+                      ? _buildErrorState(p)
+                      : TabBarView(
+                          controller: _tabController,
+                          children: [
+                            _buildVehiclesTab(),
+                            _buildBaysTab(),
+                          ],
+                        ),
             ),
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _openAddVehicleSheet(),
-        icon: const Icon(Icons.add_rounded),
-        label: const Text('Add vehicle'),
-        backgroundColor: p.primary,
-        foregroundColor: p.onPrimary,
-      ),
+      floatingActionButton: (_isLoading || _loadError != null)
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: () => _openAddVehicleSheet(),
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('Add vehicle'),
+              backgroundColor: p.primary,
+              foregroundColor: p.onPrimary,
+            ),
+    );
+  }
+
+  Widget _buildErrorState(AppPaletteData p) {
+    return ModuleEmptyState(
+      icon: _isLinked
+          ? Icons.cloud_off_rounded
+          : Icons.apartment_outlined,
+      title: _isLinked ? 'Could not load your parking' : 'Flat not linked yet',
+      message: _loadError!,
+      actionLabel: _isLinked ? 'Retry' : null,
+      onAction: _isLinked ? _loadData : null,
     );
   }
 
@@ -218,6 +341,12 @@ class _ResidentVehiclesParkingScreenState
               vehicle: _myVehicles[i],
               onEdit: () => _openAddVehicleSheet(_myVehicles[i]),
               onRemove: () => _confirmRemoveVehicle(_myVehicles[i]),
+              // Only one request per flat can be open at a time, so hide the
+              // button rather than let the tap fail server-side.
+              onRequestBay: _bayRequest?.isPending == true
+                  ? null
+                  : () => _openRequestBaySheet(_myVehicles[i]),
+              requestPending: _bayRequest?.isPending == true,
             ),
       ),
     );
@@ -226,14 +355,39 @@ class _ResidentVehiclesParkingScreenState
   // ── Bays ────────────────────────────────────────────────────
 
   Widget _buildBaysTab() {
+    final p = AppTheme.paletteFor(Theme.of(context).brightness);
+    final textTheme = Theme.of(context).textTheme;
+
     if (_myAllocations.isEmpty) {
+      final req = _bayRequest;
+      if (req != null) {
+        return RefreshIndicator(
+          onRefresh: _loadData,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+            children: [
+              _buildRequestCard(p, textTheme, req),
+              const SizedBox(height: 16),
+              ModuleEmptyState(
+                icon: Icons.local_parking_outlined,
+                title: 'No bay allotted yet',
+                message: req.isPending
+                    ? 'Your request is with the society office. Once an administrator allots a bay, it appears here automatically.'
+                    : 'Your last request was not taken forward. You can raise a fresh one when you are ready.',
+                actionLabel: req.isPending ? null : 'Request a bay',
+                onAction: req.isPending ? null : () => _openRequestBaySheet(),
+              ),
+            ],
+          ),
+        );
+      }
       return ModuleEmptyState(
         icon: Icons.local_parking_outlined,
         title: 'No bay allotted yet',
         message:
-            'Bays are allotted by the society office as per availability. Your vehicles above stay on the waitlist till then.',
+            'Bays are allotted by the society office as per availability. Submit an allotment request to the admin for your flat.',
         actionLabel: 'Request a bay',
-        onAction: () => Navigator.pushNamed(context, '/complaints/raise'),
+        onAction: () => _openRequestBaySheet(),
       );
     }
     return RefreshIndicator(
@@ -247,7 +401,7 @@ class _ResidentVehiclesParkingScreenState
             return Padding(
               padding: const EdgeInsets.only(bottom: 2),
               child: Text(
-                'Allotments on $_flatSubtitle are maintained by the society office. For swaps or surrender, raise a helpdesk request.',
+                'Allotments on $_flatSubtitle are maintained by the society office. For swaps or surrender, contact society admin.',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: AppTheme.paletteFor(
                               Theme.of(context).brightness)
@@ -262,6 +416,112 @@ class _ResidentVehiclesParkingScreenState
       ),
     );
   }
+
+  Widget _buildRequestCard(
+    AppPaletteData p,
+    TextTheme textTheme,
+    ParkingBayRequestItem req,
+  ) {
+    final pending = req.isPending;
+    final accent = pending ? p.warning : p.danger;
+    final requestedOn =
+        DateFormat('d MMM yyyy, h:mm a').format(req.createdAt.toLocal());
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: accent.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(req.status.icon, size: 20, color: accent),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  pending
+                      ? 'Bay request with the society office'
+                      : 'Bay request declined',
+                  style: textTheme.titleSmall?.copyWith(
+                    color: accent,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              StatusDot(color: accent, label: req.status.label),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Vehicle: ${req.vehicleDisplay}',
+            style: textTheme.bodySmall?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: p.textPrimary,
+            ),
+          ),
+          Text(
+            'Preference: ${req.categoryLabel}',
+            style: textTheme.bodySmall?.copyWith(color: p.textSecondary),
+          ),
+          if (req.notes != null && req.notes!.trim().isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                'Note: "${req.notes!.trim()}"',
+                style: textTheme.bodySmall?.copyWith(
+                  fontStyle: FontStyle.italic,
+                  color: p.textSecondary,
+                ),
+              ),
+            ),
+          if (!pending &&
+              req.reviewNotes != null &&
+              req.reviewNotes!.trim().isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                'Office said: ${req.reviewNotes!.trim()}',
+                style: textTheme.bodySmall?.copyWith(
+                  color: p.textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          const SizedBox(height: 6),
+          Text(
+            'Requested on $requestedOn',
+            style: textTheme.bodySmall?.copyWith(
+              fontSize: 11,
+              color: p.textTertiary,
+            ),
+          ),
+          if (pending) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                OutlinedButton(
+                  onPressed: _withdrawRequest,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: p.danger,
+                    side: BorderSide(color: p.danger.withValues(alpha: 0.4)),
+                    minimumSize: const Size(0, 36),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: const Text('Withdraw', style: TextStyle(fontSize: 12.5)),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
 }
 
 /// One registered vehicle: plate on the left, status on the right,
@@ -270,11 +530,15 @@ class _VehicleRow extends StatelessWidget {
   final VehicleItem vehicle;
   final VoidCallback onEdit;
   final VoidCallback onRemove;
+  final VoidCallback? onRequestBay;
+  final bool requestPending;
 
   const _VehicleRow({
     required this.vehicle,
     required this.onEdit,
     required this.onRemove,
+    this.onRequestBay,
+    this.requestPending = false,
   });
 
   @override
@@ -332,7 +596,9 @@ class _VehicleRow extends StatelessWidget {
                     color: vehicle.hasAllocatedSlot ? p.success : p.warning,
                     label: vehicle.hasAllocatedSlot
                         ? 'Bay ${vehicle.allocatedSlotNumber}'
-                        : 'Waitlisted',
+                        : requestPending
+                            ? 'Request sent'
+                            : 'No bay',
                   ),
                   const SizedBox(height: 8),
                   Row(
@@ -370,6 +636,40 @@ class _VehicleRow extends StatelessWidget {
                           ),
                         ),
                       ),
+                      if (!vehicle.hasAllocatedSlot && onRequestBay != null) ...[
+                        const SizedBox(width: 2),
+                        InkWell(
+                          onTap: onRequestBay,
+                          borderRadius: BorderRadius.circular(8),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: p.warning.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: p.warning.withValues(alpha: 0.35),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.send_rounded,
+                                    size: 12, color: p.warning),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Request bay',
+                                  style: TextStyle(
+                                    color: p.warning,
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ],

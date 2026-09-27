@@ -41,8 +41,15 @@ class ComplaintsService {
   SupabaseClient get _client =>
       _safeClient ?? SupabaseClient('http://localhost', 'anon');
 
+  /// Default page size for list screens. These queries previously had no
+  /// limit, so every complaint the society had ever seen came down the wire.
+  static const int defaultPageSize = 50;
+
   /// Fetches complaints raised by the current resident across all their residences.
-  Future<List<ComplaintRecord>> fetchResidentComplaints() async {
+  Future<List<ComplaintRecord>> fetchResidentComplaints({
+    int limit = defaultPageSize,
+    int offset = 0,
+  }) async {
     if (_safeClient == null) return [];
 
     final session = AppSession.instance;
@@ -57,7 +64,8 @@ class ComplaintsService {
           .from('complaints')
           .select('*, flats(flat_number, blocks(name)), residents(full_name, phone, email)')
           .inFilter('raised_by', residentIds)
-          .order('created_at', ascending: false);
+          .order('created_at', ascending: false)
+          .range(offset, offset + limit - 1);
 
       final list = (res as List).cast<Map<String, dynamic>>();
       return list.map(ComplaintRecord.fromMap).toList();
@@ -74,6 +82,8 @@ class ComplaintsService {
     String? priorityFilter,
     String? searchQuery,
     String sortBy = 'newest', // 'newest' | 'oldest' | 'priority'
+    int limit = defaultPageSize,
+    int offset = 0,
   }) async {
     if (_safeClient == null) return [];
     final societyId = AppSession.instance.societyId;
@@ -98,8 +108,12 @@ class ComplaintsService {
       }
 
       final res = await (sortBy == 'oldest'
-          ? query.order('created_at', ascending: true)
-          : query.order('created_at', ascending: false));
+          ? query
+              .order('created_at', ascending: true)
+              .range(offset, offset + limit - 1)
+          : query
+              .order('created_at', ascending: false)
+              .range(offset, offset + limit - 1));
       var list = (res as List).cast<Map<String, dynamic>>().map(ComplaintRecord.fromMap).toList();
 
       if (sortBy == 'priority') {

@@ -157,6 +157,11 @@ class _ResidentComplaintDetailScreenState extends State<ResidentComplaintDetailS
       ),
     );
 
+    // Read before disposing — the controller belongs to the dialog, which
+    // has now closed, and leaking one per invocation adds up.
+    final reason = noteController.text.trim();
+    noteController.dispose();
+
     if (confirmed != true) return;
 
     setState(() => _processingAction = true);
@@ -166,7 +171,7 @@ class _ResidentComplaintDetailScreenState extends State<ResidentComplaintDetailS
       await ComplaintsService.instance.updateStatus(
         complaintId: widget.complaintId,
         newStatus: ComplaintStatus.reopened,
-        note: noteController.text.trim(),
+        note: reason,
       );
 
       if (mounted) {
@@ -418,7 +423,7 @@ class _ResidentComplaintDetailScreenState extends State<ResidentComplaintDetailS
                           height: 180,
                           width: double.infinity,
                           fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => Container(
+                          errorBuilder: (_, _, _) => Container(
                             height: 100,
                             color: p.cardMuted,
                             child: const Center(child: Text('Could not load photo')),

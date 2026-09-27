@@ -554,7 +554,7 @@ class _VisitorDetailScreenState extends State<VisitorDetailScreen> {
               width: size,
               height: size,
               fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => _defaultAvatar(p, v, size: size),
+              errorBuilder: (_, _, _) => _defaultAvatar(p, v, size: size),
             ),
           );
         } catch (_) {}
@@ -566,7 +566,7 @@ class _VisitorDetailScreenState extends State<VisitorDetailScreen> {
           width: size,
           height: size,
           fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => _defaultAvatar(p, v, size: size),
+          errorBuilder: (_, _, _) => _defaultAvatar(p, v, size: size),
         ),
       );
     }

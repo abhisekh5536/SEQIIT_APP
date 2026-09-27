@@ -70,7 +70,12 @@ class _OtpScreenState extends State<OtpScreen> {
     });
   }
 
-  String get _code => _controllers.map((c) => c.text).join();
+  /// One digit per box. Taking only the first character guards against a
+  /// paste path leaving two in a field, which would make a 6-length check
+  /// pass on five digits.
+  String get _code => _controllers
+      .map((c) => c.text.isEmpty ? '' : c.text.characters.first)
+      .join();
 
   void _onChanged(String value, int index) {
     final digits = value.replaceAll(RegExp(r'\D'), '').characters.toList();

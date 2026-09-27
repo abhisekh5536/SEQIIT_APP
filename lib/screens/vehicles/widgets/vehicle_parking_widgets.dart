@@ -197,15 +197,23 @@ class SegmentedTabs extends StatelessWidget {
   final TabController controller;
   final List<String> labels;
 
+  /// Labels that should carry an attention dot — a queue with work waiting
+  /// in it, for instance. Matched against [labels] by value.
+  final Set<String> highlighted;
+
   const SegmentedTabs({
     super.key,
     required this.controller,
     required this.labels,
+    this.highlighted = const {},
   });
 
   @override
   Widget build(BuildContext context) {
     final p = AppTheme.paletteFor(Theme.of(context).brightness);
+    // Past four segments the fixed layout clips the labels on a phone, so
+    // let the strip scroll instead of shrinking the text further.
+    final scrollable = labels.length > 4;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
       child: Container(
@@ -229,6 +237,11 @@ class SegmentedTabs extends StatelessWidget {
           ),
           indicatorSize: TabBarIndicatorSize.tab,
           dividerColor: Colors.transparent,
+          isScrollable: scrollable,
+          tabAlignment: scrollable ? TabAlignment.start : null,
+          labelPadding: scrollable
+              ? const EdgeInsets.symmetric(horizontal: 14)
+              : null,
           labelColor: p.textPrimary,
           unselectedLabelColor: p.textTertiary,
           labelStyle: const TextStyle(
@@ -239,7 +252,35 @@ class SegmentedTabs extends StatelessWidget {
             fontSize: 12,
             fontWeight: FontWeight.w500,
           ),
-          tabs: [for (final l in labels) Tab(text: l)],
+          tabs: [
+            for (final l in labels)
+              Tab(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        l,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (highlighted.contains(l)) ...[
+                      const SizedBox(width: 5),
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          color: p.warning,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+          ],
         ),
       ),
     );

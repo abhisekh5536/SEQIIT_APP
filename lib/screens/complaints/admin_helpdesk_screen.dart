@@ -27,7 +27,7 @@ class _AdminHelpdeskScreenState extends State<AdminHelpdeskScreen> {
 
   String _statusFilter = 'all';
   String _categoryFilter = 'all';
-  String _priorityFilter = 'all';
+  final String _priorityFilter = 'all';
   String _sortBy = 'newest'; // 'newest' | 'oldest' | 'priority'
 
   @override

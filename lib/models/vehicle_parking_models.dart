@@ -838,3 +838,171 @@ class PlateLookupResult {
     );
   }
 }
+
+/// Canonical plate normalisation used everywhere a number plate is
+/// compared, logged or looked up.
+///
+/// The gate register, the plate lookup RPC and the vehicle registry all
+/// have to agree on this, otherwise "MH-12 AB 1234" logged at the gate
+/// never matches "MH12AB1234" in the registry.
+String normalizePlate(String raw) =>
+    raw.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '').toUpperCase();
+
+/// Where a bay request currently sits.
+enum BayRequestStatus {
+  pending,
+  approved,
+  rejected,
+  cancelled;
+
+  static BayRequestStatus fromString(String? val) {
+    return switch (val?.toLowerCase().trim()) {
+      'approved' => BayRequestStatus.approved,
+      'rejected' => BayRequestStatus.rejected,
+      'cancelled' => BayRequestStatus.cancelled,
+      _ => BayRequestStatus.pending,
+    };
+  }
+
+  String toDbValue() => name;
+
+  String get label => switch (this) {
+    BayRequestStatus.pending => 'Awaiting review',
+    BayRequestStatus.approved => 'Bay allotted',
+    BayRequestStatus.rejected => 'Declined',
+    BayRequestStatus.cancelled => 'Withdrawn',
+  };
+
+  IconData get icon => switch (this) {
+    BayRequestStatus.pending => Icons.hourglass_top_rounded,
+    BayRequestStatus.approved => Icons.check_circle_rounded,
+    BayRequestStatus.rejected => Icons.cancel_rounded,
+    BayRequestStatus.cancelled => Icons.remove_circle_outline_rounded,
+  };
+}
+
+/// A resident's request to the society office for a parking bay.
+class ParkingBayRequestItem {
+  final String id;
+  final String societyId;
+  final String flatId;
+  final String? residentId;
+  final String? vehicleId;
+  final SlotCategory? preferredCategory;
+  final String? notes;
+  final BayRequestStatus status;
+  final DateTime? reviewedAt;
+  final String? reviewNotes;
+  final String? allocationId;
+  final DateTime createdAt;
+
+  // Presentation metadata resolved from joins
+  final String flatNumber;
+  final String blockName;
+  final String residentName;
+  final String? residentPhone;
+  final String? vehicleNumber;
+  final String? vehicleMakeModel;
+  final VehicleType? vehicleType;
+
+  const ParkingBayRequestItem({
+    required this.id,
+    required this.societyId,
+    required this.flatId,
+    this.residentId,
+    this.vehicleId,
+    this.preferredCategory,
+    this.notes,
+    required this.status,
+    this.reviewedAt,
+    this.reviewNotes,
+    this.allocationId,
+    required this.createdAt,
+    this.flatNumber = '—',
+    this.blockName = '',
+    this.residentName = 'Resident',
+    this.residentPhone,
+    this.vehicleNumber,
+    this.vehicleMakeModel,
+    this.vehicleType,
+  });
+
+  bool get isPending => status == BayRequestStatus.pending;
+  bool get isResolved => !isPending;
+
+  String get flatDisplay =>
+      blockName.isNotEmpty ? '$blockName · Flat $flatNumber' : 'Flat $flatNumber';
+
+  String get categoryLabel => preferredCategory?.label ?? 'Any category';
+
+  /// "MH12AB1234 · Honda City", or a plain note when no vehicle was tied.
+  String get vehicleDisplay {
+    if (vehicleNumber == null || vehicleNumber!.isEmpty) {
+      return 'No specific vehicle';
+    }
+    final model = vehicleMakeModel;
+    return model != null && model.isNotEmpty
+        ? '$vehicleNumber · $model'
+        : vehicleNumber!;
+  }
+
+  factory ParkingBayRequestItem.fromMap(Map<String, dynamic> m) {
+    String flatNum = '—';
+    String blkName = '';
+    final flatMap = m['flats'];
+    if (flatMap is Map<String, dynamic>) {
+      flatNum = flatMap['flat_number']?.toString() ?? '—';
+      final bMap = flatMap['blocks'];
+      if (bMap is Map<String, dynamic>) {
+        blkName = bMap['name']?.toString() ?? '';
+      }
+    }
+
+    String resName = 'Resident';
+    String? resPhone;
+    final resMap = m['residents'];
+    if (resMap is Map<String, dynamic>) {
+      resName = resMap['full_name']?.toString() ?? 'Resident';
+      resPhone = resMap['phone']?.toString();
+    }
+
+    String? vNum;
+    String? vModel;
+    VehicleType? vType;
+    final vehMap = m['vehicles'];
+    if (vehMap is Map<String, dynamic>) {
+      vNum = vehMap['vehicle_number']?.toString();
+      vModel = vehMap['make_model']?.toString();
+      if (vehMap['type'] != null) {
+        vType = VehicleType.fromString(vehMap['type']?.toString());
+      }
+    }
+
+    final catRaw = m['preferred_category']?.toString();
+
+    return ParkingBayRequestItem(
+      id: m['id']?.toString() ?? '',
+      societyId: m['society_id']?.toString() ?? '',
+      flatId: m['flat_id']?.toString() ?? '',
+      residentId: m['resident_id']?.toString(),
+      vehicleId: m['vehicle_id']?.toString(),
+      preferredCategory: (catRaw == null || catRaw.isEmpty)
+          ? null
+          : SlotCategory.fromString(catRaw),
+      notes: m['notes']?.toString(),
+      status: BayRequestStatus.fromString(m['status']?.toString()),
+      reviewedAt: DateTime.tryParse(m['reviewed_at']?.toString() ?? ''),
+      reviewNotes: m['review_notes']?.toString(),
+      allocationId: m['allocation_id']?.toString(),
+      createdAt:
+          DateTime.tryParse(m['created_at']?.toString() ?? '') ?? DateTime.now(),
+      flatNumber: flatNum,
+      blockName: blkName,
+      residentName: resName,
+      residentPhone: resPhone,
+      vehicleNumber: vNum,
+      vehicleMakeModel: vModel,
+      vehicleType: vType,
+    );
+  }
+}

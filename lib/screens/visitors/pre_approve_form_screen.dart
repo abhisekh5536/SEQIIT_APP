@@ -642,7 +642,7 @@ class _PreApproveFormScreenState extends State<PreApproveFormScreen> {
           Switch.adaptive(
             value: _isPrivate,
             onChanged: (v) => setState(() => _isPrivate = v),
-            activeColor: p.primary,
+            activeThumbColor: p.primary,
           ),
         ],
       ),

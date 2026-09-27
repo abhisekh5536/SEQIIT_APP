@@ -1,10 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'screens/admin_approvals_screen.dart';
-import 'screens/admin_vehicles_screen.dart';
 import 'screens/auth_screen.dart';
 import 'screens/complaints/complaints_root_screen.dart';
 import 'screens/complaints/raise_complaint_screen.dart';
@@ -19,10 +20,12 @@ import 'screens/notifications_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/security/security_root_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/vehicles/guard/vehicle_gate_lookup_screen.dart';
 import 'screens/vehicles/vehicles_parking_root_screen.dart';
 import 'screens/visitors/visitors_root_screen.dart';
 import 'services/app_session.dart';
 import 'services/notifications_service.dart';
+import 'services/visitors_service.dart';
 import 'theme/app_theme.dart';
 import 'theme/theme_controller.dart';
 
@@ -34,8 +37,8 @@ Future<void> main() async {
   ]);
   await dotenv.load(fileName: '.env');
   await Supabase.initialize(
-    url: dotenv.env['SUPABASE_URL']!,
-    publishableKey: dotenv.env['SUPABASE_PUBLISHABLE_KEY']!,
+    url: dotenv.env['SUPABASE_URL']!.trim(),
+    publishableKey: dotenv.env['SUPABASE_PUBLISHABLE_KEY']!.trim(),
   );
   final themeController = await ThemeController.load();
   runApp(SocietyApp(themeController: themeController));
@@ -52,6 +55,7 @@ class SocietyApp extends StatefulWidget {
 
 class _SocietyAppState extends State<SocietyApp> {
   bool _loggedIn = false;
+  StreamSubscription<VisitorLiveEvent>? _visitorLiveSub;
 
   @override
   void initState() {
@@ -61,6 +65,7 @@ class _SocietyAppState extends State<SocietyApp> {
         _loggedIn = true;
         AppSession.instance.load().then((_) {
           NotificationsService.instance.init();
+          _startVisitorRealtime();
         });
       }
       Supabase.instance.client.auth.onAuthStateChange.listen((data) {
@@ -70,8 +75,10 @@ class _SocietyAppState extends State<SocietyApp> {
         if (session != null) {
           AppSession.instance.load().then((_) {
             NotificationsService.instance.init();
+            _startVisitorRealtime();
           });
         } else {
+          _stopVisitorRealtime();
           AppSession.instance.reset();
         }
       });
@@ -79,6 +86,36 @@ class _SocietyAppState extends State<SocietyApp> {
       // Supabase not initialized in widget tests — show MainShell so Home tests pass
       _loggedIn = true;
     }
+  }
+
+  /// Subscribing at the app level, not per screen, means a gate approval
+  /// also refreshes the notification bell and the home badge while the user
+  /// is somewhere else in the app.
+  void _startVisitorRealtime() {
+    final societyId = AppSession.instance.societyId;
+    if (societyId == null || societyId.isEmpty) return;
+
+    VisitorsService.instance.initRealtime(societyId);
+    _visitorLiveSub?.cancel();
+    _visitorLiveSub = VisitorsService.instance.onVisitorEvent.listen((event) {
+      if (event.isApprovalDecision || event.isNewGateRequest) {
+        // Debounced: a busy gate produces a burst of events, and each
+        // fetch costs several queries.
+        NotificationsService.instance.refreshSoon();
+      }
+    });
+  }
+
+  void _stopVisitorRealtime() {
+    _visitorLiveSub?.cancel();
+    _visitorLiveSub = null;
+    VisitorsService.instance.disposeRealtime();
+  }
+
+  @override
+  void dispose() {
+    _visitorLiveSub?.cancel();
+    super.dispose();
   }
 
   @override
@@ -118,6 +155,7 @@ class _SocietyAppState extends State<SocietyApp> {
                   child: VehiclesParkingRootScreen(),
                 ),
             '/vehicles': (context) => const VehiclesParkingRootScreen(),
+            '/gate-vehicles': (context) => const VehicleGateLookupScreen(),
             '/directory': (context) => const _AdminGate(
                   child: DirectoryScreen(showBack: true),
                 ),

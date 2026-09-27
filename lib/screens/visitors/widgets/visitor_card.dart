@@ -166,7 +166,7 @@ class VisitorCard extends StatelessWidget {
               width: 48,
               height: 48,
               fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => _defaultAvatar(p),
+              errorBuilder: (_, _, _) => _defaultAvatar(p),
             ),
           );
         } catch (_) {}
@@ -178,7 +178,7 @@ class VisitorCard extends StatelessWidget {
           width: 48,
           height: 48,
           fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => _defaultAvatar(p),
+          errorBuilder: (_, _, _) => _defaultAvatar(p),
         ),
       );
     }
