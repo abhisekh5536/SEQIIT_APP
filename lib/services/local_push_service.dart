@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/visitor_models.dart';
 import 'app_session.dart';
+import 'notification_preferences_service.dart';
 import 'push_messaging_service.dart';
 import 'visitors_service.dart';
 
@@ -31,12 +32,17 @@ class LocalPushService {
 
   bool _initialized = false;
 
-  static const _visitorChannel = AndroidNotificationChannel(
-    'visitor_gate',
-    'Visitors at gate',
-    description: 'Alerts when a visitor is waiting for your approval.',
-    importance: Importance.max,
-  );
+  /// One Android channel per module, so the OS settings page lists them
+  /// separately too. Time-critical modules break through as heads-up.
+  static AndroidNotificationChannel _channelFor(PushModule m) =>
+      AndroidNotificationChannel(
+        m.channelId,
+        m.channelName,
+        description: m.subtitle,
+        importance: (m == PushModule.visitors || m == PushModule.security)
+            ? Importance.max
+            : Importance.high,
+      );
 
   Future<void> init() async {
     if (_initialized || kIsWeb) return;
@@ -55,7 +61,9 @@ class LocalPushService {
 
       final android = _plugin.resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>();
-      await android?.createNotificationChannel(_visitorChannel);
+      for (final m in PushModule.values) {
+        await android?.createNotificationChannel(_channelFor(m));
+      }
       _initialized = true;
 
       // App cold-started by tapping a notification.
@@ -93,6 +101,9 @@ class LocalPushService {
     if (!_initialized) return;
     // The server already pushes these; posting here too would double up.
     if (PushMessagingService.instance.isActive) return;
+    if (!NotificationPreferencesService.instance.isEnabled(PushModule.visitors)) {
+      return;
+    }
     final v = event.visitor;
     final session = AppSession.instance;
 
@@ -119,7 +130,13 @@ class LocalPushService {
       return;
     }
 
-    await _show(tag: 'visitor_${v.id}', title: title, body: body);
+    await _show(
+      module: PushModule.visitors,
+      tag: 'visitor_${v.id}',
+      title: title,
+      body: body,
+      route: '/visitors',
+    );
   }
 
   /// Draws an FCM message received while the app is in the foreground,
@@ -128,7 +145,12 @@ class LocalPushService {
     if (!_initialized) return;
     final n = message.notification;
     if (n == null) return;
+    final channelId = message.data['channel'];
     await _show(
+      module: PushModule.values.firstWhere(
+        (m) => m.channelId == channelId,
+        orElse: () => PushModule.general,
+      ),
       tag: message.data['tag'] ?? message.messageId ?? '',
       title: n.title ?? '',
       body: n.body ?? '',
@@ -140,6 +162,7 @@ class LocalPushService {
   /// posts with notification id 0, so the same (tag, 0) pair here replaces
   /// rather than duplicates a server alert for the same visitor.
   Future<void> _show({
+    required PushModule module,
     required String tag,
     required String title,
     required String body,
@@ -151,13 +174,13 @@ class LocalPushService {
         id: isAndroid ? 0 : tag.hashCode & 0x7fffffff,
         title: title,
         body: body,
-        payload: route ?? '/visitors',
+        payload: route,
         notificationDetails: NotificationDetails(
           android: AndroidNotificationDetails(
-            _visitorChannel.id,
-            _visitorChannel.name,
-            channelDescription: _visitorChannel.description,
-            importance: Importance.max,
+            module.channelId,
+            module.channelName,
+            channelDescription: module.subtitle,
+            importance: _channelFor(module).importance,
             priority: Priority.high,
             category: AndroidNotificationCategory.message,
             ticker: title,
@@ -186,7 +209,8 @@ class LocalPushService {
   String? _pendingRoute;
 
   void openRoute(String? route) {
-    if (route == null || route.isEmpty) return;
+    // '/' is the shell the user is already on.
+    if (route == null || route.isEmpty || route == '/') return;
     final nav = navigatorKey?.currentState;
     if (nav == null) {
       // Cold start: the navigator is not built yet.
