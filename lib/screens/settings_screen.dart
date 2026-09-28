@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/notification_model.dart';
 import '../services/app_session.dart';
+import '../services/notification_preferences_service.dart';
 import '../services/notifications_service.dart';
 import '../services/push_messaging_service.dart';
 import '../theme/app_theme.dart';
@@ -19,9 +20,6 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  bool _billAlerts = true;
-  bool _announcementAlerts = true;
-  bool _gateAlerts = false;
   bool _directoryVisibility = true;
   bool _signingOut = false;
 
@@ -236,37 +234,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     _divider(p),
                     _retentionDropdownRow(context, p),
-                    _divider(p),
-                    _switchRow(
-                      context,
-                      p,
-                      icon: Icons.receipt_long_outlined,
-                      title: 'Bills & receipts',
-                      subtitle: 'Maintenance invoices and payment confirmations',
-                      value: _billAlerts,
-                      onChanged: (v) => setState(() => _billAlerts = v),
-                    ),
-                    _divider(p),
-                    _switchRow(
-                      context,
-                      p,
-                      icon: Icons.campaign_outlined,
-                      title: 'Announcements',
-                      subtitle: 'New board notices and community alerts',
-                      value: _announcementAlerts,
-                      onChanged: (v) => setState(() => _announcementAlerts = v),
-                    ),
-                    _divider(p),
-                    _switchRow(
-                      context,
-                      p,
-                      icon: Icons.sensor_door_outlined,
-                      title: 'Gate activity',
-                      subtitle: 'Visitor and delivery entries',
-                      value: _gateAlerts,
-                      onChanged: (v) => setState(() => _gateAlerts = v),
-                    ),
                   ],
+                ),
+                const SizedBox(height: 24),
+                _groupTitle(context, 'Push Notifications'),
+                const SizedBox(height: 10),
+                _pushModulesCard(context, p),
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Text(
+                    'Turned-off modules still appear in Notification History.',
+                    style: textTheme.bodySmall?.copyWith(fontSize: 11.5),
+                  ),
                 ),
                 const SizedBox(height: 24),
 
@@ -689,6 +669,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  /// One switch per module. Saved server-side, so an opted-out module is
+  /// not pushed to any of this user's devices.
+  Widget _pushModulesCard(BuildContext context, AppPaletteData p) {
+    final prefs = NotificationPreferencesService.instance;
+    return AnimatedBuilder(
+      animation: prefs,
+      builder: (context, _) {
+        final rows = <Widget>[];
+        for (final m in PushModule.values) {
+          if (rows.isNotEmpty) rows.add(_divider(p));
+          rows.add(_switchRow(
+            context,
+            p,
+            icon: m.icon,
+            title: m.label,
+            subtitle: m.subtitle,
+            value: prefs.isEnabled(m),
+            onChanged: (v) async {
+              HapticFeedback.selectionClick();
+              try {
+                await prefs.setEnabled(m, v);
+              } catch (_) {
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Could not update ${m.label}. Try again.'),
+                  ),
+                );
+              }
+            },
+          ));
+        }
+        return _card(context, p, children: rows);
+      },
     );
   }
 

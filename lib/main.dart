@@ -25,6 +25,7 @@ import 'screens/vehicles/vehicles_parking_root_screen.dart';
 import 'screens/visitors/visitors_root_screen.dart';
 import 'services/app_session.dart';
 import 'services/local_push_service.dart';
+import 'services/notification_preferences_service.dart';
 import 'services/notifications_service.dart';
 import 'services/push_messaging_service.dart';
 import 'services/visitors_service.dart';
@@ -107,6 +108,7 @@ class _SocietyAppState extends State<SocietyApp> {
     VisitorsService.instance.initRealtime(societyId);
     LocalPushService.instance.requestPermission();
     PushMessagingService.instance.register();
+    NotificationPreferencesService.instance.load();
     _visitorLiveSub?.cancel();
     _visitorLiveSub = VisitorsService.instance.onVisitorEvent.listen((event) {
       if (event.isApprovalDecision || event.isNewGateRequest) {
