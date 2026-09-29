@@ -30,6 +30,7 @@ import 'screens/settings_screen.dart';
 import 'screens/vehicles/guard/vehicle_gate_lookup_screen.dart';
 import 'screens/vehicles/vehicles_parking_root_screen.dart';
 import 'screens/visitors/visitors_root_screen.dart';
+import 'services/app_lifecycle_service.dart';
 import 'services/app_session.dart';
 import 'services/guard_service.dart';
 import 'services/local_push_service.dart';
@@ -43,6 +44,7 @@ import 'theme/theme_controller.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  AppLifecycleService.instance.init();
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
@@ -115,6 +117,7 @@ class _SocietyAppState extends State<SocietyApp> {
     if (societyId == null || societyId.isEmpty) return;
 
     VisitorsService.instance.initRealtime(societyId);
+    NotificationsService.instance.startLive(societyId);
     LocalPushService.instance.requestPermission();
     PushMessagingService.instance.register();
     NotificationPreferencesService.instance.load();
@@ -133,6 +136,7 @@ class _SocietyAppState extends State<SocietyApp> {
     _visitorLiveSub?.cancel();
     _visitorLiveSub = null;
     VisitorsService.instance.disposeRealtime();
+    NotificationsService.instance.stopLive();
     // Otherwise the next account to sign in on this phone keeps listening
     // to the previous society's SOS channel.
     SecurityService.instance.disposeRealtime();

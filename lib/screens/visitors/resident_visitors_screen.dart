@@ -33,6 +33,7 @@ class _ResidentVisitorsScreenState extends State<ResidentVisitorsScreen>
   List<VisitorRecord> _visitors = [];
 
   StreamSubscription<VisitorLiveEvent>? _liveSub;
+  StreamSubscription<void>? _resyncSub;
 
   /// Ids already surfaced as a full-screen prompt, so a later update to the
   /// same visitor does not re-open the sheet on top of the resident.
@@ -56,6 +57,7 @@ class _ResidentVisitorsScreenState extends State<ResidentVisitorsScreen>
   @override
   void dispose() {
     _liveSub?.cancel();
+    _resyncSub?.cancel();
     _freshClear?.cancel();
     VisitorsService.instance.removeListener(_onServiceChanged);
     _tabController.dispose();
@@ -71,6 +73,21 @@ class _ResidentVisitorsScreenState extends State<ResidentVisitorsScreen>
     VisitorsService.instance.initRealtime(societyId);
     VisitorsService.instance.addListener(_onServiceChanged);
     _liveSub = VisitorsService.instance.onVisitorEvent.listen(_onLiveEvent);
+    _resyncSub = VisitorsService.instance.onResync.listen((_) => _resync());
+  }
+
+  /// Back from the background: the socket was closed, so a gate request
+  /// made meanwhile never arrived as an event. Re-fetch, and put the
+  /// newest unseen request in front of the resident as a live one would.
+  Future<void> _resync() async {
+    final known = _visitors.map((v) => v.id).toSet();
+    await _loadVisitors(silent: true);
+    if (!mounted) return;
+    final waiting = _visitors.where((v) =>
+        v.isPending && !known.contains(v.id) && !_promptedIds.contains(v.id));
+    if (waiting.isEmpty) return;
+    _promptedIds.addAll(waiting.map((v) => v.id));
+    _promptForApproval(waiting.first);
   }
 
   void _onServiceChanged() {

@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/visitor_models.dart';
+import 'app_lifecycle_service.dart';
 import 'app_session.dart';
 import 'notifications_service.dart';
 
@@ -52,7 +53,10 @@ class VisitorLiveEvent {
 }
 
 class VisitorsService extends ChangeNotifier {
-  VisitorsService._();
+  VisitorsService._() {
+    AppLifecycleService.instance.onPaused.listen((_) => _onAppPaused());
+    AppLifecycleService.instance.onResumed.listen((_) => _onAppResumed());
+  }
   static final VisitorsService instance = VisitorsService._();
 
   SupabaseClient? get _safeClient {
@@ -112,6 +116,13 @@ class VisitorsService extends ChangeNotifier {
 
   /// Fires once per visitor row change visible to this user.
   Stream<VisitorLiveEvent> get onVisitorEvent => _eventController.stream;
+
+  final _resyncController = StreamController<void>.broadcast();
+
+  /// Fires when the app returns from the background. The socket was closed
+  /// meanwhile, so any change made then never arrived as an event — open
+  /// screens should re-fetch.
+  Stream<void> get onResync => _resyncController.stream;
 
   LiveStatus get liveStatus => _liveStatus;
   bool get isLive => _liveStatus == LiveStatus.live;
@@ -217,6 +228,9 @@ class VisitorsService extends ChangeNotifier {
   /// the socket with a backoff.
   void _degradeToPolling() {
     _setLiveStatus(LiveStatus.degraded);
+    // In the background the socket is closed on purpose; polling or a
+    // retry here would reopen it. Resume picks this up again.
+    if (!AppLifecycleService.instance.isForeground) return;
     _startPolling();
 
     _retryTimer?.cancel();
@@ -225,6 +239,7 @@ class VisitorsService extends ChangeNotifier {
     _retryTimer = Timer(delay, () {
       final societyId = _realtimeSocietyId;
       if (societyId == null || _liveStatus == LiveStatus.live) return;
+      if (!AppLifecycleService.instance.isForeground) return;
       _teardownChannel();
       initRealtime(societyId);
     });
@@ -253,6 +268,27 @@ class VisitorsService extends ChangeNotifier {
     }
   }
 
+  void _onAppPaused() {
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    _stopPolling();
+  }
+
+  void _onAppResumed() {
+    final societyId = _realtimeSocietyId;
+    if (societyId == null) return;
+
+    // supabase_flutter rejoins healthy channels itself; one that was
+    // already failing when the app went away needs a fresh start.
+    if (_liveStatus != LiveStatus.live) {
+      _retryAttempt = 0;
+      _teardownChannel();
+      initRealtime(societyId);
+    }
+    if (!_resyncController.isClosed) _resyncController.add(null);
+    notifyListeners();
+  }
+
   /// Drops the subscription — call on sign-out.
   void disposeRealtime() {
     _retryTimer?.cancel();
@@ -268,6 +304,7 @@ class VisitorsService extends ChangeNotifier {
   void dispose() {
     disposeRealtime();
     _eventController.close();
+    _resyncController.close();
     super.dispose();
   }
 

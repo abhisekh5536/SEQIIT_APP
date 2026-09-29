@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/facility_models.dart';
+import 'app_lifecycle_service.dart';
 import 'app_session.dart';
 
 /// Data access for the Facilities catalog (migration 19).
@@ -12,7 +13,13 @@ import 'app_session.dart';
 /// Society scoping is enforced by RLS from the caller's own membership; the
 /// society id sent here only narrows the query and cannot widen it.
 class FacilitiesService extends ChangeNotifier {
-  FacilitiesService._();
+  FacilitiesService._() {
+    // Open screens re-fetch on any notify; after the background the socket
+    // was closed, so status changes made meanwhile need that re-fetch.
+    AppLifecycleService.instance.onResumed.listen((_) {
+      if (_listeners > 0) notifyListeners();
+    });
+  }
   static final FacilitiesService instance = FacilitiesService._();
 
   static const _bucket = 'facility-images';

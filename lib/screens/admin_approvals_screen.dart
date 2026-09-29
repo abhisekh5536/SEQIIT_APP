@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/db_models.dart';
+import '../services/app_lifecycle_service.dart';
 import '../services/app_session.dart';
 import '../services/notifications_service.dart';
 import '../services/visitors_service.dart';
@@ -31,6 +32,8 @@ class _AdminApprovalsScreenState extends State<AdminApprovalsScreen>
   RealtimeChannel? _channel;
   LiveStatus _liveStatus = LiveStatus.idle;
   Timer? _pollTimer;
+  StreamSubscription<void>? _pausedSub;
+  StreamSubscription<void>? _resumedSub;
 
   @override
   void initState() {
@@ -39,11 +42,25 @@ class _AdminApprovalsScreenState extends State<AdminApprovalsScreen>
     NotificationsService.instance.markModuleAsRead('join_request');
     _loadRequests();
     _startLive();
+
+    // The socket closes in the background: stop the fallback poll so it
+    // does not run unseen, and catch up on requests filed meanwhile.
+    _pausedSub = AppLifecycleService.instance.onPaused.listen((_) {
+      _pollTimer?.cancel();
+      _pollTimer = null;
+    });
+    _resumedSub = AppLifecycleService.instance.onResumed.listen((_) {
+      if (!mounted) return;
+      if (_liveStatus == LiveStatus.degraded) _degradeToPolling();
+      _loadRequests(silent: true);
+    });
   }
 
   @override
   void dispose() {
     _pollTimer?.cancel();
+    _pausedSub?.cancel();
+    _resumedSub?.cancel();
     final channel = _channel;
     _channel = null;
     if (channel != null) {
@@ -106,6 +123,7 @@ class _AdminApprovalsScreenState extends State<AdminApprovalsScreen>
     if (!mounted) return;
     setState(() => _liveStatus = LiveStatus.degraded);
     _pollTimer?.cancel();
+    if (!AppLifecycleService.instance.isForeground) return;
     _pollTimer = Timer.periodic(
       const Duration(seconds: 30),
       (_) => _loadRequests(silent: true),
