@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/db_models.dart';
+import '../models/vehicle_parking_models.dart';
 import '../services/app_session.dart';
+import '../services/vehicles_parking_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/resident_widgets.dart';
 
@@ -915,52 +917,51 @@ class _AddVehicleDialog extends StatefulWidget {
 class _AddVehicleDialogState extends State<_AddVehicleDialog> {
   final _make = TextEditingController();
   final _reg = TextEditingController();
-  final _parking = TextEditingController();
+  VehicleType _type = VehicleType.fourWheeler;
   bool _submitting = false;
 
   @override
   void dispose() {
     _make.dispose();
     _reg.dispose();
-    _parking.dispose();
     super.dispose();
   }
 
   Future<void> _submit() async {
     final make = _make.text.trim();
-    final reg = _reg.text.trim().toUpperCase();
-    final parking = _parking.text.trim();
+    final reg = _reg.text.trim();
     if (make.isEmpty || reg.isEmpty || _submitting) return;
 
+    if (normalizePlate(reg).length < 4) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a valid registration number')),
+      );
+      return;
+    }
+
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
     setState(() => _submitting = true);
     try {
-      try {
-        await Supabase.instance.client.from('vehicles').insert({
-          'society_id': widget.primary.societyId,
-          'flat_id': widget.primary.flatId,
-          'resident_id': widget.primary.id,
-          'make_model': make,
-          'vehicle_number': reg,
-          'type': 'four_wheeler',
-          'status': 'active',
-        });
-      } catch (_) {
-        await Supabase.instance.client.from('resident_vehicles').insert({
-          'society_id': widget.primary.societyId,
-          'flat_id': widget.primary.flatId,
-          'resident_id': widget.primary.id,
-          'make_model': make,
-          'registration_no': reg,
-          if (parking.isNotEmpty) 'parking_slot': parking,
-        });
-      }
+      // Goes through the service rather than inserting directly: this path
+      // used to hardcode type = four_wheeler (so every scooter registered
+      // here became a car) and skipped plate normalisation, which let the
+      // same vehicle be registered twice under two spellings.
+      await VehiclesParkingService.instance.registerVehicle(
+        societyId: widget.primary.societyId,
+        flatId: widget.primary.flatId,
+        residentId: widget.primary.id,
+        vehicleNumber: reg,
+        makeModel: make,
+        type: _type,
+      );
       if (!mounted) return;
-      Navigator.pop(context, true);
+      navigator.pop(true);
     } catch (e) {
       if (!mounted) return;
       setState(() => _submitting = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString())),
+      messenger.showSnackBar(
+        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
       );
     }
   }
@@ -976,14 +977,38 @@ class _AddVehicleDialogState extends State<_AddVehicleDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Car name & model *', style: textTheme.labelMedium),
+            Text('Vehicle type *', style: textTheme.labelMedium),
+            const SizedBox(height: 8),
+            SegmentedButton<VehicleType>(
+              segments: const [
+                ButtonSegment(
+                  value: VehicleType.fourWheeler,
+                  icon: Icon(Icons.directions_car_rounded, size: 18),
+                  label: Text('Car'),
+                ),
+                ButtonSegment(
+                  value: VehicleType.twoWheeler,
+                  icon: Icon(Icons.two_wheeler_rounded, size: 18),
+                  label: Text('Bike'),
+                ),
+              ],
+              selected: {_type},
+              showSelectedIcon: false,
+              onSelectionChanged: (sel) =>
+                  setState(() => _type = sel.first),
+            ),
+            const SizedBox(height: 16),
+            Text('Make & model *', style: textTheme.labelMedium),
             const SizedBox(height: 8),
             TextField(
               controller: _make,
               autofocus: true,
               textCapitalization: TextCapitalization.words,
-              decoration:
-                  const InputDecoration(hintText: 'e.g. Hyundai Creta'),
+              decoration: InputDecoration(
+                hintText: _type == VehicleType.twoWheeler
+                    ? 'e.g. Honda Activa 6G'
+                    : 'e.g. Hyundai Creta',
+              ),
             ),
             const SizedBox(height: 16),
             Text('Registration number *', style: textTheme.labelMedium),
@@ -991,14 +1016,13 @@ class _AddVehicleDialogState extends State<_AddVehicleDialog> {
             TextField(
               controller: _reg,
               textCapitalization: TextCapitalization.characters,
-              decoration: const InputDecoration(hintText: 'e.g. HR-26 CY 9034'),
+              decoration: const InputDecoration(hintText: 'e.g. HR 26 CY 9034'),
             ),
-            const SizedBox(height: 16),
-            Text('Parking slot', style: textTheme.labelMedium),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _parking,
-              decoration: const InputDecoration(hintText: 'e.g. B-08'),
+            const SizedBox(height: 12),
+            Text(
+              'Parking bays are allotted by the society office. Register the '
+              'vehicle here, then request a bay under Vehicles & Parking.',
+              style: textTheme.bodySmall,
             ),
           ],
         ),

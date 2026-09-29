@@ -13,12 +13,19 @@ class AllocateSlotDialog extends StatefulWidget {
   final List<ParkingSlotItem> vacantSlots;
   final VoidCallback onAllocated;
 
+  /// Set when the dialog is opened straight off a resident's bay request,
+  /// so the admin does not have to hunt for the flat again.
+  final String? preselectedFlatId;
+  final String? preselectedVehicleId;
+
   const AllocateSlotDialog({
     super.key,
     required this.societyId,
     this.preselectedSlot,
     required this.vacantSlots,
     required this.onAllocated,
+    this.preselectedFlatId,
+    this.preselectedVehicleId,
   });
 
   static Future<void> show(
@@ -27,6 +34,8 @@ class AllocateSlotDialog extends StatefulWidget {
     ParkingSlotItem? preselectedSlot,
     required List<ParkingSlotItem> vacantSlots,
     required VoidCallback onAllocated,
+    String? preselectedFlatId,
+    String? preselectedVehicleId,
   }) {
     return showModalBottomSheet(
       context: context,
@@ -37,6 +46,8 @@ class AllocateSlotDialog extends StatefulWidget {
         preselectedSlot: preselectedSlot,
         vacantSlots: vacantSlots,
         onAllocated: onAllocated,
+        preselectedFlatId: preselectedFlatId,
+        preselectedVehicleId: preselectedVehicleId,
       ),
     );
   }
@@ -79,12 +90,29 @@ class _AllocateSlotDialogState extends State<AllocateSlotDialog> {
     return null;
   }
 
+  int get _flatAllocatedCount {
+    if (_flatId == null) return 0;
+    return VehiclesParkingService.instance.allocations
+        .where((a) => a.flatId == _flatId && a.isActive)
+        .length;
+  }
+
+  int get _maxSlotsPerFlat =>
+      VehiclesParkingService.instance.policyConfig?.maxSlotsPerFlat ?? 2;
+
+  bool get _isFlatAtCap => _flatAllocatedCount >= _maxSlotsPerFlat;
+
   @override
   void initState() {
     super.initState();
     _slotId = widget.preselectedSlot?.id ??
         (widget.vacantSlots.isNotEmpty ? widget.vacantSlots.first.id : null);
-    _loadFlats();
+    _loadFlats().then((_) {
+      final preFlat = widget.preselectedFlatId;
+      if (preFlat != null && preFlat.isNotEmpty && mounted) {
+        _onFlatChanged(preFlat);
+      }
+    });
   }
 
   @override
@@ -95,26 +123,66 @@ class _AllocateSlotDialogState extends State<AllocateSlotDialog> {
 
   Future<void> _loadFlats() async {
     try {
-      final res = await Supabase.instance.client
-          .from('flats')
-          .select('id, flat_number, blocks(name)')
-          .eq('society_id', widget.societyId)
-          .order('flat_number', ascending: true);
+      final client = Supabase.instance.client;
+      // 1) Fetch blocks for this society
+      final blocksRes = await client
+          .from('blocks')
+          .select('id, name')
+          .eq('society_id', widget.societyId);
+      final blocksList = (blocksRes as List).cast<Map<String, dynamic>>();
+      final blockMap = {
+        for (final b in blocksList) b['id'].toString(): b['name']?.toString() ?? ''
+      };
+      final blockIds = blockMap.keys.toList();
+
+      // 2) Fetch flats. Filtering by block would drop every flat whose
+      // block_id is null — a society that does not use blocks would have
+      // no allottable flats at all — so go via society_id and keep blocks
+      // purely for the display name.
+      List<Map<String, dynamic>> flatsList;
+      try {
+        final res = await client
+            .from('flats')
+            .select('id, flat_number, block_id')
+            .eq('society_id', widget.societyId)
+            .order('flat_number', ascending: true);
+        flatsList = (res as List).cast<Map<String, dynamic>>();
+      } catch (_) {
+        // Older schemas keep society only on the block.
+        if (blockIds.isEmpty) {
+          flatsList = [];
+        } else {
+          final res = await client
+              .from('flats')
+              .select('id, flat_number, block_id')
+              .inFilter('block_id', blockIds)
+              .order('flat_number', ascending: true);
+          flatsList = (res as List).cast<Map<String, dynamic>>();
+        }
+      }
+
+      final mappedFlats = flatsList.map((f) {
+        final bId = f['block_id']?.toString() ?? '';
+        return {
+          'id': f['id']?.toString() ?? '',
+          'flat_number': f['flat_number']?.toString() ?? '',
+          'blocks': {'name': blockMap[bId] ?? ''},
+        };
+      }).toList();
+
       if (mounted) {
         setState(() {
-          _flats = (res as List).cast<Map<String, dynamic>>();
+          _flats = mappedFlats;
           _loadingFlats = false;
         });
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('AllocateSlotDialog._loadFlats error: $e');
       if (mounted) {
         setState(() {
-          _flats = [
-            {'id': 'f-101', 'flat_number': '101', 'blocks': {'name': 'Tower A'}},
-            {'id': 'f-202', 'flat_number': '202', 'blocks': {'name': 'Tower B'}},
-            {'id': 'f-303', 'flat_number': '303', 'blocks': {'name': 'Tower C'}},
-          ];
+          _flats = [];
           _loadingFlats = false;
+          _error = 'Could not load flats: $e';
         });
       }
     }
@@ -147,14 +215,19 @@ class _AllocateSlotDialogState extends State<AllocateSlotDialog> {
           if (_residents.isNotEmpty) {
             _residentId = _residents.first['id']?.toString();
           }
+          // Carry over the vehicle the resident named in their request.
+          final preVeh = widget.preselectedVehicleId;
+          if (preVeh != null && vehList.any((v) => v.id == preVeh)) {
+            _vehicleId = preVeh;
+          }
         });
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('AllocateSlotDialog._onFlatChanged error: $e');
       if (mounted) {
         setState(() {
-          _residents = [
-            {'id': 'r-1', 'full_name': 'Flat Resident', 'resident_type': 'owner'},
-          ];
+          _residents = [];
+          _flatVehicles = [];
           _loadingFlat = false;
         });
       }
@@ -198,6 +271,8 @@ class _AllocateSlotDialogState extends State<AllocateSlotDialog> {
       _submitting = true;
       _error = null;
     });
+    // Captured before Navigator.pop, which disposes this context's route.
+    final messenger = ScaffoldMessenger.of(context);
     try {
       await VehiclesParkingService.instance.allocateSlot(
         societyId: widget.societyId,
@@ -212,7 +287,7 @@ class _AllocateSlotDialogState extends State<AllocateSlotDialog> {
       widget.onAllocated();
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
           const SnackBar(content: Text('Bay allotted')),
         );
       }
@@ -232,7 +307,7 @@ class _AllocateSlotDialogState extends State<AllocateSlotDialog> {
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     final slot = _selectedSlot;
     final flat = _selectedFlat;
-    final canSubmit = _slotId != null && _flatId != null && !_submitting;
+    final canSubmit = _slotId != null && _flatId != null && !_submitting && !_isFlatAtCap;
 
     return Container(
       padding:
@@ -333,6 +408,47 @@ class _AllocateSlotDialogState extends State<AllocateSlotDialog> {
                         ],
                       ),
               ),
+            if (flat != null) ...[
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                decoration: BoxDecoration(
+                  color: _isFlatAtCap
+                      ? p.danger.withValues(alpha: 0.1)
+                      : p.cardMuted,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: _isFlatAtCap
+                        ? p.danger.withValues(alpha: 0.3)
+                        : p.hairline,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      _isFlatAtCap
+                          ? Icons.warning_amber_rounded
+                          : Icons.info_outline_rounded,
+                      size: 16,
+                      color: _isFlatAtCap ? p.danger : p.textSecondary,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        _isFlatAtCap
+                            ? 'Flat has reached society limit ($_flatAllocatedCount/$_maxSlotsPerFlat bays allotted)'
+                            : '$_flatAllocatedCount of $_maxSlotsPerFlat allowed bays allotted to this flat',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: _isFlatAtCap ? p.danger : p.textSecondary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 8),
 
             // ── Resident + vehicle (appear once a flat is chosen) ──

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -5,7 +7,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/db_models.dart';
 import '../services/app_session.dart';
 import '../services/notifications_service.dart';
+import '../services/visitors_service.dart';
 import '../theme/app_theme.dart';
+import 'visitors/widgets/live_status_chip.dart';
 
 class AdminApprovalsScreen extends StatefulWidget {
   const AdminApprovalsScreen({super.key});
@@ -24,21 +28,91 @@ class _AdminApprovalsScreenState extends State<AdminApprovalsScreen>
 
   final _processingIds = <String>{};
 
+  RealtimeChannel? _channel;
+  LiveStatus _liveStatus = LiveStatus.idle;
+  Timer? _pollTimer;
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
     NotificationsService.instance.markModuleAsRead('join_request');
     _loadRequests();
+    _startLive();
   }
 
   @override
   void dispose() {
+    _pollTimer?.cancel();
+    final channel = _channel;
+    _channel = null;
+    if (channel != null) {
+      try {
+        Supabase.instance.client.removeChannel(channel);
+      } catch (_) {}
+    }
     _tabController.dispose();
     super.dispose();
   }
 
-  Future<void> _loadRequests() async {
+  /// New join requests land on this screen without a manual refresh, the
+  /// same way gate approvals do.
+  void _startLive() {
+    final societyId = AppSession.instance.societyId;
+    if (societyId == null || societyId.isEmpty) return;
+
+    setState(() => _liveStatus = LiveStatus.connecting);
+    try {
+      _channel = Supabase.instance.client
+          .channel('public:resident_join_requests:$societyId')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'resident_join_requests',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'society_id',
+              value: societyId,
+            ),
+            callback: (_) {
+              if (mounted) _loadRequests(silent: true);
+            },
+          )
+          .subscribe((status, error) {
+            if (!mounted) return;
+            switch (status) {
+              case RealtimeSubscribeStatus.subscribed:
+                _pollTimer?.cancel();
+                _pollTimer = null;
+                setState(() => _liveStatus = LiveStatus.live);
+                break;
+              case RealtimeSubscribeStatus.channelError:
+              case RealtimeSubscribeStatus.timedOut:
+              case RealtimeSubscribeStatus.closed:
+                debugPrint('Join requests realtime status=$status err=$error');
+                _degradeToPolling();
+                break;
+            }
+          });
+    } catch (e) {
+      debugPrint('Join requests realtime failed: $e');
+      _degradeToPolling();
+    }
+  }
+
+  /// If the socket will not hold, keep the queue moving on a slow poll
+  /// rather than leaving the admin on a frozen list.
+  void _degradeToPolling() {
+    if (!mounted) return;
+    setState(() => _liveStatus = LiveStatus.degraded);
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _loadRequests(silent: true),
+    );
+  }
+
+  Future<void> _loadRequests({bool silent = false}) async {
     final societyId = AppSession.instance.societyId;
     if (societyId == null) {
       setState(() {
@@ -48,10 +122,12 @@ class _AdminApprovalsScreenState extends State<AdminApprovalsScreen>
       return;
     }
 
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    if (!silent) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
 
     try {
       final res = await Supabase.instance.client
@@ -62,12 +138,14 @@ class _AdminApprovalsScreenState extends State<AdminApprovalsScreen>
 
       final list = (res as List).cast<Map<String, dynamic>>().map(ResidentJoinRequest.fromMap).toList();
 
+      if (!mounted) return;
       setState(() {
         _allRequests = list;
         _loading = false;
       });
       await AppSession.instance.refreshAdminApprovalsCount();
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _loading = false;
         _error = 'Failed to load requests: $e';
@@ -223,10 +301,15 @@ class _AdminApprovalsScreenState extends State<AdminApprovalsScreen>
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
+          LiveStatusChip(
+            status: _liveStatus,
+            onRefresh: _loading ? null : () => _loadRequests(),
+          ),
+          const SizedBox(width: 8),
           IconButton(
             icon: const Icon(Icons.refresh_rounded),
             tooltip: 'Refresh',
-            onPressed: _loading ? null : _loadRequests,
+            onPressed: _loading ? null : () => _loadRequests(),
           ),
           const SizedBox(width: 8),
         ],
@@ -313,7 +396,7 @@ class _AdminApprovalsScreenState extends State<AdminApprovalsScreen>
     }
 
     return RefreshIndicator(
-      onRefresh: _loadRequests,
+      onRefresh: () => _loadRequests(),
       child: ListView.separated(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
         itemCount: list.length,

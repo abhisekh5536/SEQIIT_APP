@@ -76,6 +76,7 @@ class AppNotification {
   bool get isSos => entityType == 'sos_alert' || type.startsWith('sos_alert');
   bool get isMarketplace =>
       entityType == 'marketplace_listing' || type.startsWith('marketplace_');
+  bool get isFacility => entityType == 'facility' || type.startsWith('facility');
 
   IconData get icon {
     switch (type) {
@@ -126,6 +127,8 @@ class AppNotification {
         return Icons.info_outline_rounded;
       case 'marketplace_seller_blocked':
         return Icons.block_rounded;
+      case 'facility_status_changed':
+        return Icons.pool_rounded;
       default:
         return Icons.notifications_rounded;
     }
@@ -174,6 +177,8 @@ class AppNotification {
       case 'marketplace_listing_removed':
       case 'marketplace_seller_blocked':
         return const Color(0xFFDC2626);
+      case 'facility_status_changed':
+        return const Color(0xFF0891B2);
       default:
         return const Color(0xFF64748B);
     }

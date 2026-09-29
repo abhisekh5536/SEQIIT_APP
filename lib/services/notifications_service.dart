@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -166,14 +167,6 @@ class NotificationsService extends ChangeNotifier {
               if (vStatus != null && vStatus != 'pending_approval') {
                 changed = true;
                 _locallyReadIds.add(n.id);
-                // Also update DB table if it's a real DB record
-                if (!n.id.contains('_')) {
-                  client
-                      .from('notifications')
-                      .update({'is_read': true})
-                      .eq('id', n.id)
-                      .catchError((_) {});
-                }
                 return n.copyWith(isRead: true);
               }
             }
@@ -181,11 +174,7 @@ class NotificationsService extends ChangeNotifier {
           }).toList();
 
           if (changed) {
-            try {
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setString(
-                  _readIdsPrefKey, jsonEncode(_locallyReadIds.toList()));
-            } catch (_) {}
+            await _persistLocalReadIds();
           }
         } catch (e) {
           debugPrint('Error auto-reconciling visitor notifications: $e');
@@ -194,12 +183,44 @@ class NotificationsService extends ChangeNotifier {
 
       // Sort newest first
       _notifications.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+      // Drop read markers for notifications that have aged out of the
+      // retention window. Without this the set grows forever and is
+      // JSON-decoded from disk on every cold start.
+      _pruneReadIds();
     } catch (e) {
       debugPrint('NotificationsService.fetchNotifications error: $e');
     } finally {
       _loading = false;
       notifyListeners();
     }
+  }
+
+  void _pruneReadIds() {
+    if (_locallyReadIds.length <= 500) return;
+    final live = _notifications.map((n) => n.id).toSet();
+    final before = _locallyReadIds.length;
+    _locallyReadIds.retainWhere(live.contains);
+    if (_locallyReadIds.length != before) {
+      _persistLocalReadIds();
+    }
+  }
+
+  Timer? _refreshDebounce;
+
+  /// Coalesces bursts of refresh requests.
+  ///
+  /// Realtime fires one event per visitor change; a busy gate would otherwise
+  /// trigger a 4–6 query fetch per event.
+  void refreshSoon({Duration delay = const Duration(seconds: 2)}) {
+    _refreshDebounce?.cancel();
+    _refreshDebounce = Timer(delay, fetchNotifications);
+  }
+
+  @override
+  void dispose() {
+    _refreshDebounce?.cancel();
+    super.dispose();
   }
 
   /// Synthesizes live notifications from actual complaints and join requests
@@ -210,6 +231,10 @@ class NotificationsService extends ChangeNotifier {
     DateTime? cutoff,
   ) async {
     final List<AppNotification> list = [];
+    // A guard's notifications are all real rows (target_role 'guard').
+    // Synthesising from complaints and flats would only fire queries that
+    // RLS answers with nothing.
+    if (session.isGuard) return list;
     final societyId = session.societyId!;
     final isAdmin = session.isAdmin;
     final myResidences = session.myResidences;
@@ -242,7 +267,7 @@ class NotificationsService extends ChangeNotifier {
 
         if (isAdmin) {
           list.add(AppNotification(
-            id: 'c_admin_${id}_${status}_${category == 'security' ? 'sec' : 'gen'}',
+            id: 'c_admin_$id',
             societyId: societyId,
             targetRole: 'society_admin',
             title: category == 'security' ? '🚨 Security Alert Raised' : 'Complaint: $title',
@@ -256,7 +281,6 @@ class NotificationsService extends ChangeNotifier {
           ));
         } else {
           final noteText = c['admin_notes']?.toString();
-          final noteHash = (noteText != null && noteText.isNotEmpty) ? noteText.hashCode.abs() : 0;
           final updatedDt = DateTime.tryParse(c['updated_at']?.toString() ?? '') ?? createdAt;
 
           String titleText;
@@ -286,7 +310,7 @@ class NotificationsService extends ChangeNotifier {
           }
 
           list.add(AppNotification(
-            id: 'c_res_${id}_${status}_$noteHash',
+            id: 'c_res_$id',
             societyId: societyId,
             targetRole: 'resident',
             title: titleText,
@@ -368,7 +392,7 @@ class NotificationsService extends ChangeNotifier {
 
             if (isAdmin) {
               list.add(AppNotification(
-                id: 'v_admin_${id}_$status',
+                id: 'v_admin_$id',
                 societyId: societyId,
                 targetRole: 'society_admin',
                 title: '🚪 Visitor: $vName',
@@ -412,7 +436,7 @@ class NotificationsService extends ChangeNotifier {
               }
 
               list.add(AppNotification(
-                id: 'v_res_${id}_$status',
+                id: 'v_res_$id',
                 societyId: societyId,
                 targetRole: 'resident',
                 title: notifTitle,
@@ -437,8 +461,49 @@ class NotificationsService extends ChangeNotifier {
     return list;
   }
 
+  /// Synthesized notifications have composite ids like `v_res_<uuid>`; only
+  /// real `notifications` rows carry a bare uuid that the server knows about.
+  static final _uuidPattern = RegExp(
+      r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+      caseSensitive: false);
+
+  bool _isServerRow(String id) => _uuidPattern.hasMatch(id);
+
+  /// Records read state for THIS user only.
+  ///
+  /// The `notifications.is_read` column is shared by every recipient of a
+  /// broadcast row, so writing it marked the notification read for the whole
+  /// society. Read state now lives per-user in `notification_reads`.
+  Future<void> _persistRead(Iterable<String> ids) async {
+    final all = ids.toSet();
+    if (all.isEmpty) return;
+
+    _locallyReadIds.addAll(all);
+    await _persistLocalReadIds();
+
+    final serverIds = all.where(_isServerRow).toList();
+    if (serverIds.isEmpty) return;
+
+    try {
+      final client = _client;
+      if (client == null) return;
+      await client.rpc('mark_notifications_read', params: {'p_ids': serverIds});
+    } catch (e) {
+      // Pre-migration-16 databases have no such RPC. The local cache still
+      // holds, so the badge behaves for this user on this device.
+      debugPrint('mark_notifications_read unavailable: $e');
+    }
+  }
+
+  Future<void> _persistLocalReadIds() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+          _readIdsPrefKey, jsonEncode(_locallyReadIds.toList()));
+    } catch (_) {}
+  }
+
   Future<void> markAsRead(String notificationId) async {
-    _locallyReadIds.add(notificationId);
     _notifications = _notifications.map((n) {
       if (n.id == notificationId) {
         return n.copyWith(isRead: true);
@@ -447,19 +512,7 @@ class NotificationsService extends ChangeNotifier {
     }).toList();
     notifyListeners();
 
-    // Persist locally
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_readIdsPrefKey, jsonEncode(_locallyReadIds.toList()));
-    } catch (_) {}
-
-    // Persist remotely if it's a UUID record
-    try {
-      final client = _client;
-      if (client != null && !notificationId.contains('_')) {
-        await client.from('notifications').update({'is_read': true}).eq('id', notificationId);
-      }
-    } catch (_) {}
+    await _persistRead([notificationId]);
   }
 
   /// Marks all notifications corresponding to a specific entity (e.g. visitor, complaint) as read.
@@ -471,10 +524,6 @@ class NotificationsService extends ChangeNotifier {
         .map((n) => n.id)
         .toList();
 
-    for (final id in toMark) {
-      _locallyReadIds.add(id);
-    }
-
     _notifications = _notifications.map((n) {
       if ((n.entityType == entityType || n.type.startsWith(entityType)) &&
           n.entityId == entityId) {
@@ -484,24 +533,7 @@ class NotificationsService extends ChangeNotifier {
     }).toList();
     notifyListeners();
 
-    // Persist locally
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-          _readIdsPrefKey, jsonEncode(_locallyReadIds.toList()));
-    } catch (_) {}
-
-    // Persist remotely
-    try {
-      final client = _client;
-      if (client != null) {
-        await client
-            .from('notifications')
-            .update({'is_read': true})
-            .eq('entity_type', entityType)
-            .eq('entity_id', entityId);
-      }
-    } catch (_) {}
+    await _persistRead(toMark);
   }
 
   /// Marks all notifications corresponding to a specific module (e.g. 'visitor', 'notice', 'complaint', 'join_request') as read.
@@ -519,9 +551,6 @@ class NotificationsService extends ChangeNotifier {
 
     if (matchingNotifs.isEmpty) return;
 
-    for (final n in matchingNotifs) {
-      _locallyReadIds.add(n.id);
-    }
 
     _notifications = _notifications.map((n) {
       final isMatchingType = n.entityType == entityType ||
@@ -538,49 +567,29 @@ class NotificationsService extends ChangeNotifier {
     }).toList();
     notifyListeners();
 
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-          _readIdsPrefKey, jsonEncode(_locallyReadIds.toList()));
-    } catch (_) {}
-
-    try {
-      final client = _client;
-      if (client != null) {
-        final idsToUpdate = matchingNotifs
-            .where((n) => !n.id.contains('_'))
-            .map((n) => n.id)
-            .toList();
-        if (idsToUpdate.isNotEmpty) {
-          await client
-              .from('notifications')
-              .update({'is_read': true})
-              .inFilter('id', idsToUpdate);
-        }
-      }
-    } catch (_) {}
+    await _persistRead(matchingNotifs.map((n) => n.id));
   }
 
   Future<void> markAllAsRead() async {
-    for (final n in _notifications) {
-      _locallyReadIds.add(n.id);
-    }
-    _notifications = _notifications.map((n) => n.copyWith(isRead: true)).toList();
+    final ids = _notifications.map((n) => n.id).toList();
+    _notifications =
+        _notifications.map((n) => n.copyWith(isRead: true)).toList();
     notifyListeners();
 
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_readIdsPrefKey, jsonEncode(_locallyReadIds.toList()));
-    } catch (_) {}
+    _locallyReadIds.addAll(ids);
+    await _persistLocalReadIds();
 
     final societyId = AppSession.instance.societyId;
     if (societyId != null) {
       try {
         final client = _client;
         if (client != null) {
-          await client.rpc('mark_all_notifications_as_read', params: {'p_society_id': societyId});
+          await client.rpc('mark_all_notifications_as_read',
+              params: {'p_society_id': societyId});
         }
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('mark_all_notifications_as_read failed: $e');
+      }
     }
   }
 }

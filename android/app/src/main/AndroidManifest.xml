@@ -1,6 +1,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <!-- Android 13+: system notifications for visitors at the gate. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.VIBRATE"/>
+
     <application
-        android:label="society_management"
+        android:label="Saqiit"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
@@ -25,7 +31,24 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+
+            <!-- Supabase auth callback. Without this, "Continue with Google"
+                 and the password-reset email open a browser the user cannot
+                 get back from, so both flows dead-end.
+                 The same URL must be registered under
+                 Supabase Dashboard -> Authentication -> URL Configuration. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="io.supabase.saqiit" android:host="login-callback"/>
+            </intent-filter>
         </activity>
+        <!-- FCM alerts drawn while the app is closed use the same
+             high-importance channel the app creates on startup. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="visitor_gate" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data
@@ -42,7 +65,11 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
-        <!-- Marketplace: call seller / open WhatsApp via url_launcher -->
+        <!-- Marketplace: call seller / open WhatsApp via url_launcher.
+             Android 11+ package visibility: without these, canLaunchUrl()
+             returns false for tel: and the dialer never opens. That silently
+             breaks the guard's "call resident" button and degrades the
+             emergency-contacts screen. -->
         <intent>
             <action android:name="android.intent.action.DIAL"/>
             <data android:scheme="tel"/>

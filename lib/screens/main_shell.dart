@@ -28,6 +28,7 @@ class _MainShellState extends State<MainShell> {
       builder: (context, _) {
         final isAdmin = AppSession.instance.isAdmin;
 
+        // Guards never reach this shell — they get GuardShell (main.dart).
         final pages = [
           const HomeScreen(),
           const NoticesScreen(),
@@ -95,4 +96,4 @@ class _MainShellState extends State<MainShell> {
       ),
     );
   }
-}
+}

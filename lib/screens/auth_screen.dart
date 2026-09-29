@@ -15,7 +15,13 @@ class AuthScreen extends StatefulWidget {
   State<AuthScreen> createState() => _AuthScreenState();
 }
 
-class _AuthScreenState extends State<AuthScreen> {
+/// Registered in AndroidManifest.xml, ios/Runner/Info.plist and under
+/// Supabase Dashboard -> Authentication -> URL Configuration. Without it the
+/// browser has nowhere to hand control back to and both flows dead-end.
+const String kAuthRedirectUrl = 'io.supabase.saqiit://login-callback/';
+
+class _AuthScreenState extends State<AuthScreen>
+    with WidgetsBindingObserver {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -26,8 +32,33 @@ class _AuthScreenState extends State<AuthScreen> {
   bool _obscurePassword = true;
   String? _errorMessage;
 
+  /// True while an external OAuth round trip is in flight. The browser hand-off
+  /// gives us no completion callback, so the return to the app is the signal.
+  bool _awaitingOAuth = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed || !_awaitingOAuth) return;
+    _awaitingOAuth = false;
+    // Back in the app. If sign-in worked the auth listener replaces this
+    // screen; if the user cancelled, clear the spinner rather than leaving it
+    // turning forever.
+    bool signedIn = false;
+    try {
+      signedIn = Supabase.instance.client.auth.currentSession != null;
+    } catch (_) {}
+    if (mounted && !signedIn) setState(() => _loading = false);
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _emailController.dispose();
     _passwordController.dispose();
     _confirmController.dispose();
@@ -54,7 +85,11 @@ class _AuthScreenState extends State<AuthScreen> {
         await client.auth.signInWithPassword(email: email, password: password);
       } else {
         final response =
-            await client.auth.signUp(email: email, password: password);
+            await client.auth.signUp(
+              email: email,
+              password: password,
+              emailRedirectTo: kAuthRedirectUrl,
+            );
         if (response.session == null) {
           if (!mounted) return;
           setState(() => _loading = false);
@@ -86,17 +121,27 @@ class _AuthScreenState extends State<AuthScreen> {
               : 'Sign in failed: $e';
         });
       }
-    } finally {
-      if (mounted && _loading) {
-        Future.delayed(const Duration(milliseconds: 1400), () {
-          if (mounted && _loading) setState(() => _loading = false);
-        });
-      }
+    }
+
+    // On success the auth listener in main.dart swaps the whole screen out,
+    // so this only matters if that never happens. Clearing it on a fixed
+    // 1.4s timer used to leave the spinner gone but the user still here on a
+    // slow link, with no indication of what went wrong.
+    if (mounted && _loading) {
+      setState(() => _loading = false);
     }
   }
 
   String _friendlyError(String message) {
     final lower = message.toLowerCase();
+    if (lower.contains('socketexception') ||
+        lower.contains('network is unreachable') ||
+        lower.contains('failed host lookup') ||
+        lower.contains('connection refused') ||
+        lower.contains('connection failed') ||
+        lower.contains('clientexception')) {
+      return 'Could not connect to server. Please check your internet/Wi-Fi connection or disable Private DNS and try again.';
+    }
     if (lower.contains('invalid login credentials')) {
       return 'Wrong email or password. Please try again.';
     }
@@ -136,7 +181,8 @@ class _AuthScreenState extends State<AuthScreen> {
       return;
     }
     try {
-      await Supabase.instance.client.auth.resetPasswordForEmail(email);
+      await Supabase.instance.client.auth
+          .resetPasswordForEmail(email, redirectTo: kAuthRedirectUrl);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -158,19 +204,29 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 
   Future<void> _googleSignIn() async {
-    setState(() => _loading = true);
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() {
+      _loading = true;
+      _awaitingOAuth = true;
+    });
     try {
-      await Supabase.instance.client.auth.signInWithOAuth(OAuthProvider.google);
+      // Returns as soon as the external browser opens — not when sign-in
+      // finishes. Keep the pending state until the user comes back, so a
+      // half-finished OAuth round trip does not look idle.
+      await Supabase.instance.client.auth.signInWithOAuth(
+        OAuthProvider.google,
+        redirectTo: kAuthRedirectUrl,
+      );
     } catch (e) {
+      _awaitingOAuth = false;
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      setState(() => _loading = false);
+      messenger.showSnackBar(
         const SnackBar(
           content: Text('Could not sign in with Google. Try again.'),
           behavior: SnackBarBehavior.floating,
         ),
       );
-    } finally {
-      if (mounted) setState(() => _loading = false);
     }
   }
 

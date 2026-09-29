@@ -12,6 +12,7 @@ import 'add_slot_sheet.dart';
 import 'allocate_slot_dialog.dart';
 import 'bulk_add_slots_dialog.dart';
 import 'parking_policy_dialog.dart';
+import '../../../widgets/text_input_dialog.dart';
 
 class AdminVehiclesParkingDashboard extends StatefulWidget {
   final bool showBack;
@@ -38,12 +39,27 @@ class _AdminVehiclesParkingDashboardState
 
   List<Map<String, dynamic>> _blocks = [];
 
-  String get _societyId => AppSession.instance.societyId ?? 'soc-1';
+  String get _societyId => AppSession.instance.societyId ?? '';
+
+  List<ParkingBayRequestItem> get _pendingRequests => VehiclesParkingService
+      .instance.bayRequests
+      .where((r) => r.isPending)
+      .toList();
+
+  int get _pendingRequestCount => _pendingRequests.length;
+
+  List<String> get _tabLabels => [
+        'Bays',
+        _pendingRequestCount > 0 ? 'Requests ($_pendingRequestCount)' : 'Requests',
+        'Allotted',
+        'Vehicles',
+        'Gate',
+      ];
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this)
+    _tabController = TabController(length: 5, vsync: this)
       ..addListener(() => setState(() {}));
     _loadAll();
   }
@@ -62,6 +78,7 @@ class _AdminVehiclesParkingDashboardState
       service.fetchSocietyVehicles(societyId: _societyId),
       service.fetchAllocations(societyId: _societyId),
       service.fetchParkingPolicy(_societyId),
+      service.fetchBayRequests(societyId: _societyId),
       _loadBlocks(),
     ]);
     if (mounted) setState(() => _isLoading = false);
@@ -76,12 +93,11 @@ class _AdminVehiclesParkingDashboardState
           .eq('society_id', _societyId)
           .order('name', ascending: true);
       _blocks = (res as List).cast<Map<String, dynamic>>();
-    } catch (_) {
-      _blocks = [
-        {'id': 'b1', 'name': 'Tower A'},
-        {'id': 'b2', 'name': 'Tower B'},
-        {'id': 'b3', 'name': 'Tower C'},
-      ];
+    } catch (e) {
+      // Inventing "Tower A/B/C" here would let an admin create bays against
+      // block ids that do not exist. Better an empty picker.
+      debugPrint('AdminVehiclesParkingDashboard._loadBlocks error: $e');
+      _blocks = [];
     }
   }
 
@@ -155,6 +171,65 @@ class _AdminVehiclesParkingDashboardState
     }
   }
 
+  Future<void> _updateSlotStatus(String slotId, SlotStatus status) async {
+    try {
+      await VehiclesParkingService.instance.updateSlotStatus(
+        slotId: slotId,
+        status: status,
+        societyId: _societyId,
+      );
+      HapticFeedback.lightImpact();
+      _loadAll();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not update status: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _confirmDeleteSlot(String slotId, String slotNumber) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Delete bay $slotNumber?'),
+        content: const Text(
+          'This will remove this bay from society parking inventory.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      try {
+        await VehiclesParkingService.instance.deleteSlot(
+          slotId: slotId,
+          societyId: _societyId,
+        );
+        HapticFeedback.lightImpact();
+        _loadAll();
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Could not delete bay: $e')),
+          );
+        }
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = AppTheme.paletteFor(Theme.of(context).brightness);
@@ -196,7 +271,10 @@ class _AdminVehiclesParkingDashboardState
             ),
             SegmentedTabs(
               controller: _tabController,
-              labels: const ['Bays', 'Allotted', 'Vehicles', 'Gate'],
+              labels: _tabLabels,
+              highlighted: _pendingRequestCount > 0
+                  ? {_tabLabels[1]}
+                  : const {},
             ),
             const SizedBox(height: 12),
             Expanded(
@@ -206,6 +284,7 @@ class _AdminVehiclesParkingDashboardState
                       controller: _tabController,
                       children: [
                         _buildBaysTab(),
+                        _buildRequestsTab(),
                         _buildAllottedTab(),
                         _buildVehiclesTab(),
                         VehicleGateLookupScreen(
@@ -238,7 +317,7 @@ class _AdminVehiclesParkingDashboardState
           backgroundColor: p.primary,
           foregroundColor: p.onPrimary,
         );
-      case 1:
+      case 2:
         return FloatingActionButton.extended(
           onPressed: () => _openAllocate(),
           icon: const Icon(Icons.key_rounded),
@@ -330,13 +409,10 @@ class _AdminVehiclesParkingDashboardState
                             ? null
                             : () => _confirmVacate(
                                 s.activeAllocation!, s.slotNumber),
-                        onSetVacant: () {
-                          VehiclesParkingService.instance.updateSlotStatus(
-                            slotId: s.id,
-                            status: SlotStatus.vacant,
-                            societyId: _societyId,
-                          );
-                        },
+                        onSetStatus: (status) => _updateSlotStatus(s.id, status),
+                        onDelete: s.isAllocated
+                            ? null
+                            : () => _confirmDeleteSlot(s.id, s.slotNumber),
                       ),
                     )),
             ],
@@ -346,7 +422,128 @@ class _AdminVehiclesParkingDashboardState
     );
   }
 
-  // ── TAB 2: Allotted ─────────────────────────────────────────
+  // ── TAB 2: Requests ─────────────────────────────────────────
+
+  Widget _buildRequestsTab() {
+    return AnimatedBuilder(
+      animation: VehiclesParkingService.instance,
+      builder: (context, _) {
+        final all = VehiclesParkingService.instance.bayRequests;
+        final pending = all.where((r) => r.isPending).toList();
+        final decided = all.where((r) => r.isResolved).toList();
+
+        if (all.isEmpty) {
+          return const ModuleEmptyState(
+            icon: Icons.inbox_rounded,
+            title: 'No bay requests',
+            message:
+                'When a resident asks the office for a parking bay, it lands here for you to allot or decline.',
+          );
+        }
+
+        return RefreshIndicator(
+          onRefresh: _loadAll,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
+            children: [
+              if (pending.isNotEmpty) ...[
+                ModuleSectionHeader(title: 'Awaiting review (${pending.length})'),
+                const SizedBox(height: 8),
+                ...pending.map((r) => Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: _BayRequestRow(
+                        request: r,
+                        onAllot: () => _allotForRequest(r),
+                        onDecline: () => _declineRequest(r),
+                      ),
+                    )),
+              ],
+              if (decided.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                ModuleSectionHeader(title: 'Decided (${decided.length})'),
+                const SizedBox(height: 8),
+                ...decided.map((r) => Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: _BayRequestRow(request: r),
+                    )),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  /// Opens the allotment dialog pre-aimed at the requesting flat. The
+  /// request closes itself once the allocation lands (database trigger),
+  /// so the admin never has to tick it off twice.
+  void _allotForRequest(ParkingBayRequestItem req) {
+    final vacant = VehiclesParkingService.instance.slots
+        .where((s) => s.isVacant)
+        .where((s) =>
+            req.preferredCategory == null || s.category == req.preferredCategory)
+        .toList();
+
+    if (vacant.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            req.preferredCategory == null
+                ? 'No vacant bays right now'
+                : 'No vacant ${req.preferredCategory!.label.toLowerCase()} bays right now',
+          ),
+        ),
+      );
+      return;
+    }
+
+    AllocateSlotDialog.show(
+      context,
+      societyId: _societyId,
+      vacantSlots: vacant,
+      preselectedFlatId: req.flatId,
+      preselectedVehicleId: req.vehicleId,
+      onAllocated: _loadAll,
+    );
+  }
+
+  Future<void> _declineRequest(ParkingBayRequestItem req) async {
+    final reason = await showTextInputDialog(
+      context,
+      title: 'Decline this request?',
+      message: '${req.residentName} · ${req.flatDisplay}',
+      label: 'Reason (shown to the resident)',
+      hint: 'e.g. No covered bays free; added to waitlist',
+      maxLines: 2,
+      confirmLabel: 'Decline',
+      confirmColor: Theme.of(context).colorScheme.error,
+      requiredMessage: 'Please give the resident a reason',
+    );
+    if (reason == null) return;
+
+    try {
+      await VehiclesParkingService.instance.reviewBayRequest(
+        requestId: req.id,
+        societyId: _societyId,
+        action: BayRequestStatus.rejected,
+        reviewNotes: reason,
+      );
+      await _loadAll();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Request declined')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+        );
+      }
+    }
+  }
+
+  // ── TAB 3: Allotted ─────────────────────────────────────────
 
   Widget _buildAllottedTab() {
     return AnimatedBuilder(
@@ -710,8 +907,17 @@ class _FilterRow extends StatelessWidget {
                       fontWeight: FontWeight.w600,
                     ),
                     items: [
-                      const DropdownMenuItem(
-                          value: 'All', child: Text('All blocks')),
+                      // Exactly one item carries value 'All'. It doubles as
+                      // the empty state, because a society with no blocks
+                      // used to be offered invented "Tower A"/"Tower B"
+                      // options that matched nothing and silently emptied
+                      // the bay list.
+                      DropdownMenuItem(
+                        value: 'All',
+                        child: Text(blocks.isEmpty
+                            ? 'No blocks configured'
+                            : 'All blocks'),
+                      ),
                       ...blocks.map((b) {
                         final name = b['name']?.toString() ?? 'Block';
                         return DropdownMenuItem(
@@ -721,12 +927,6 @@ class _FilterRow extends StatelessWidget {
                           child: Text(name),
                         );
                       }),
-                      if (blocks.isEmpty) ...const [
-                        DropdownMenuItem(
-                            value: 'Tower A', child: Text('Tower A')),
-                        DropdownMenuItem(
-                            value: 'Tower B', child: Text('Tower B')),
-                      ],
                     ],
                     onChanged: (v) {
                       if (v == null) return;
@@ -809,13 +1009,15 @@ class _BayRow extends StatelessWidget {
   final ParkingSlotItem slot;
   final VoidCallback onAllot;
   final VoidCallback? onVacate;
-  final VoidCallback onSetVacant;
+  final ValueChanged<SlotStatus> onSetStatus;
+  final VoidCallback? onDelete;
 
   const _BayRow({
     required this.slot,
     required this.onAllot,
     required this.onVacate,
-    required this.onSetVacant,
+    required this.onSetStatus,
+    this.onDelete,
   });
 
   @override
@@ -961,7 +1163,7 @@ class _BayRow extends StatelessWidget {
                       )
                     else
                       InkWell(
-                        onTap: onSetVacant,
+                        onTap: () => onSetStatus(SlotStatus.vacant),
                         borderRadius: BorderRadius.circular(8),
                         child: Padding(
                           padding: const EdgeInsets.symmetric(
@@ -976,6 +1178,77 @@ class _BayRow extends StatelessWidget {
                           ),
                         ),
                       ),
+                    const Spacer(),
+                    PopupMenuButton<String>(
+                      icon: Icon(Icons.more_horiz_rounded,
+                          size: 20, color: p.textTertiary),
+                      tooltip: 'Bay options',
+                      onSelected: (val) {
+                        switch (val) {
+                          case 'vacant':
+                            onSetStatus(SlotStatus.vacant);
+                            break;
+                          case 'maintenance':
+                            onSetStatus(SlotStatus.maintenance);
+                            break;
+                          case 'reserved':
+                            onSetStatus(SlotStatus.reserved);
+                            break;
+                          case 'delete':
+                            onDelete?.call();
+                            break;
+                        }
+                      },
+                      itemBuilder: (ctx) => [
+                        if (!slot.isVacant && !slot.isAllocated)
+                          const PopupMenuItem(
+                            value: 'vacant',
+                            child: Row(
+                              children: [
+                                Icon(Icons.check_circle_outline_rounded,
+                                    size: 18),
+                                SizedBox(width: 8),
+                                Text('Mark Vacant'),
+                              ],
+                            ),
+                          ),
+                        if (!slot.isUnderMaintenance && !slot.isAllocated)
+                          const PopupMenuItem(
+                            value: 'maintenance',
+                            child: Row(
+                              children: [
+                                Icon(Icons.build_circle_outlined, size: 18),
+                                SizedBox(width: 8),
+                                Text('Mark Maintenance'),
+                              ],
+                            ),
+                          ),
+                        if (!slot.isReserved && !slot.isAllocated)
+                          const PopupMenuItem(
+                            value: 'reserved',
+                            child: Row(
+                              children: [
+                                Icon(Icons.bookmark_border_rounded, size: 18),
+                                SizedBox(width: 8),
+                                Text('Mark Reserved'),
+                              ],
+                            ),
+                          ),
+                        if (onDelete != null)
+                          const PopupMenuItem(
+                            value: 'delete',
+                            child: Row(
+                              children: [
+                                Icon(Icons.delete_outline_rounded,
+                                    size: 18, color: Colors.red),
+                                SizedBox(width: 8),
+                                Text('Delete Bay',
+                                    style: TextStyle(color: Colors.red)),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
                   ],
                 ),
               ],
@@ -1066,5 +1339,155 @@ class _DirectoryRow extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+/// One row in the admin's bay-request queue: who asked, for what, and the
+/// two actions that resolve it.
+class _BayRequestRow extends StatelessWidget {
+  final ParkingBayRequestItem request;
+  final VoidCallback? onAllot;
+  final VoidCallback? onDecline;
+
+  const _BayRequestRow({
+    required this.request,
+    this.onAllot,
+    this.onDecline,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final p = AppTheme.paletteFor(Theme.of(context).brightness);
+    final textTheme = Theme.of(context).textTheme;
+    final pending = request.isPending;
+
+    final accent = switch (request.status) {
+      BayRequestStatus.pending => p.warning,
+      BayRequestStatus.approved => p.success,
+      BayRequestStatus.rejected => p.danger,
+      BayRequestStatus.cancelled => p.textTertiary,
+    };
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: p.card,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: p.hairline),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      request.residentName,
+                      style: textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      request.flatDisplay,
+                      style: textTheme.bodySmall?.copyWith(
+                        color: p.primary,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              StatusDot(color: accent, label: request.status.label),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _line(p, Icons.directions_car_outlined, request.vehicleDisplay),
+          _line(p, Icons.local_parking_outlined,
+              'Prefers: ${request.categoryLabel}'),
+          _line(p, Icons.schedule_rounded, _ago(request.createdAt)),
+          if (request.notes != null && request.notes!.trim().isNotEmpty)
+            _line(p, Icons.sticky_note_2_outlined, request.notes!.trim()),
+          if (!pending &&
+              request.reviewNotes != null &&
+              request.reviewNotes!.trim().isNotEmpty)
+            _line(p, Icons.reply_rounded, request.reviewNotes!.trim()),
+          if (pending && (onAllot != null || onDecline != null)) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                if (onDecline != null)
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: onDecline,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: p.danger,
+                        side: BorderSide(color: p.danger.withValues(alpha: 0.45)),
+                        minimumSize: const Size(0, 42),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(11),
+                        ),
+                      ),
+                      child: const Text('Decline',
+                          style: TextStyle(fontWeight: FontWeight.w600)),
+                    ),
+                  ),
+                if (onDecline != null && onAllot != null)
+                  const SizedBox(width: 10),
+                if (onAllot != null)
+                  Expanded(
+                    flex: 2,
+                    child: FilledButton.icon(
+                      onPressed: onAllot,
+                      icon: const Icon(Icons.key_rounded, size: 16),
+                      label: const Text('Allot a bay'),
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size(0, 42),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(11),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _line(AppPaletteData p, IconData icon, String text) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 14, color: p.textTertiary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(fontSize: 12.5, color: p.textSecondary),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _ago(DateTime dt) {
+    final diff = DateTime.now().difference(dt);
+    if (diff.inMinutes < 1) return 'Just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes} min ago';
+    if (diff.inHours < 24) return '${diff.inHours} hr ago';
+    if (diff.inDays == 1) return 'Yesterday';
+    return '${diff.inDays} days ago';
   }
 }

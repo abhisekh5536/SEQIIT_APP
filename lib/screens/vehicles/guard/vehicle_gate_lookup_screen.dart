@@ -4,18 +4,28 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../models/vehicle_parking_models.dart';
+import '../../../services/app_session.dart';
+import '../../../services/guard_service.dart';
 import '../../../services/vehicles_parking_service.dart';
 import '../../../theme/app_theme.dart';
 import '../widgets/vehicle_parking_widgets.dart';
 
 class VehicleGateLookupScreen extends StatefulWidget {
-  final String societyId;
+  final String? societyId;
+
+  /// False when embedded under a host that already supplies a header and a
+  /// SafeArea — the admin dashboard's "Gate" tab.
   final bool showAppBar;
+
+  /// False when the screen is a navigation destination rather than a pushed
+  /// route, so the header carries no back arrow.
+  final bool showBack;
 
   const VehicleGateLookupScreen({
     super.key,
-    required this.societyId,
+    this.societyId,
     this.showAppBar = true,
+    this.showBack = true,
   });
 
   @override
@@ -30,38 +40,102 @@ class _VehicleGateLookupScreenState extends State<VehicleGateLookupScreen> {
   PlateLookupResult? _result;
   bool _isSearching = false;
   bool _isLogging = false;
+  /// Ids of log rows whose exit is being written, so a second tap on
+  /// "Mark out" cannot fire a duplicate update.
+  final Set<String> _exiting = {};
+
+  String get _effectiveSocietyId =>
+      widget.societyId ?? AppSession.instance.societyId ?? '';
 
   @override
   void initState() {
     super.initState();
-    VehiclesParkingService.instance.fetchGateLogs(societyId: widget.societyId);
+    // The session may still be loading when the gate screen opens; fetching
+    // with an empty society id would fail once and never retry, leaving the
+    // guard staring at an empty register.
+    AppSession.instance.addListener(_onSessionChanged);
+    _refreshLogs();
   }
 
   @override
   void dispose() {
+    AppSession.instance.removeListener(_onSessionChanged);
     _plateController.dispose();
     _notesController.dispose();
     super.dispose();
   }
 
+  void _onSessionChanged() {
+    if (!mounted) return;
+    if (_effectiveSocietyId.isNotEmpty &&
+        VehiclesParkingService.instance.recentLogs.isEmpty) {
+      _refreshLogs();
+    }
+  }
+
+  Future<void> _refreshLogs() {
+    return VehiclesParkingService.instance
+        .fetchGateLogs(societyId: _effectiveSocietyId);
+  }
+
+  void _snack(String message, {bool danger = false}) {
+    if (!mounted) return;
+    final p = AppTheme.paletteFor(Theme.of(context).brightness);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: danger ? p.danger : null,
+      ),
+    );
+  }
+
   Future<void> _lookup() async {
     final query = _plateController.text.trim();
-    if (query.isEmpty || _isSearching) return;
+    if (_isSearching) return;
+    if (normalizePlate(query).length < 4) {
+      _snack('Enter at least 4 characters of the number plate');
+      return;
+    }
+    FocusScope.of(context).unfocus();
     HapticFeedback.lightImpact();
     setState(() => _isSearching = true);
     try {
       final res = await VehiclesParkingService.instance.lookupPlate(
-        societyId: widget.societyId,
+        societyId: _effectiveSocietyId,
         plateNumber: query,
       );
-      if (mounted) setState(() => _result = res);
-    } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Lookup failed: $e')));
+        setState(() => _result = res);
+        HapticFeedback.selectionClick();
       }
+    } catch (e) {
+      // Never silently render "not registered" off a failed lookup — the
+      // guard has to know the check did not actually run.
+      _snack(
+        'Could not check this plate: ${e.toString().replaceFirst('Exception: ', '')}',
+        danger: true,
+      );
     } finally {
       if (mounted) setState(() => _isSearching = false);
+    }
+  }
+
+  Future<void> _markExit(VehicleEntryLogItem log) async {
+    if (_exiting.contains(log.id)) return;
+    setState(() => _exiting.add(log.id));
+    try {
+      await VehiclesParkingService.instance
+          .logGateExit(logId: log.id, societyId: _effectiveSocietyId);
+      HapticFeedback.lightImpact();
+      _snack('${log.vehicleNumberEntered} marked out');
+    } catch (e) {
+      _snack(
+        'Could not mark exit: ${e.toString().replaceFirst('Exception: ', '')}',
+        danger: true,
+      );
+    } finally {
+      if (mounted) setState(() => _exiting.remove(log.id));
     }
   }
 
@@ -71,7 +145,7 @@ class _VehicleGateLookupScreenState extends State<VehicleGateLookupScreen> {
     setState(() => _isLogging = true);
     try {
       await VehiclesParkingService.instance.logGateEntry(
-        societyId: widget.societyId,
+        societyId: _effectiveSocietyId,
         plateNumber: r.vehicleNumber ?? _plateController.text.trim(),
         vehicleId: r.vehicleId,
         matchStatus: r.matchStatus,
@@ -100,8 +174,36 @@ class _VehicleGateLookupScreenState extends State<VehicleGateLookupScreen> {
   }
 
   Future<void> _call(String phone) async {
-    final uri = Uri.parse('tel:${phone.replaceAll(RegExp(r'\s+'), '')}');
-    if (await canLaunchUrl(uri)) await launchUrl(uri);
+    final uri = Uri(scheme: 'tel', path: phone.replaceAll(RegExp(r'[^\d+]'), ''));
+    try {
+      // canLaunchUrl can report false even when a dialer exists (package
+      // visibility on Android, scheme declarations on iOS), so treat it as a
+      // hint and still attempt the launch. A guard pressing "call" and
+      // getting silence is worse than a launch that fails loudly.
+      if (await canLaunchUrl(uri)) {
+        if (await launchUrl(uri)) return;
+      }
+      if (await launchUrl(uri, mode: LaunchMode.externalApplication)) return;
+      _snack('Could not open the dialer for $phone', danger: true);
+    } catch (e) {
+      _snack('Could not place the call: $e', danger: true);
+    }
+  }
+
+  /// A guard is never given the owner's number (migration 17). The server
+  /// hands it out one logged call at a time.
+  Future<void> _callFlat(String flatId) async {
+    try {
+      final res = await GuardService.instance.callFlat(
+        flatId: flatId,
+        reason: 'vehicle',
+      );
+      if (!res.dialerOpened) {
+        _snack('Call logged, but this phone could not open the dialer', danger: true);
+      }
+    } catch (e) {
+      _snack(e.toString().replaceFirst('Exception: ', ''), danger: true);
+    }
   }
 
   @override
@@ -109,10 +211,11 @@ class _VehicleGateLookupScreenState extends State<VehicleGateLookupScreen> {
     final body = AnimatedBuilder(
       animation: VehiclesParkingService.instance,
       builder: (context, _) {
-        final logs = VehiclesParkingService.instance.recentLogs;
+        final service = VehiclesParkingService.instance;
+        final logs = service.recentLogs;
+        final logError = service.errorFor('gateLogs');
         return RefreshIndicator(
-          onRefresh: () => VehiclesParkingService.instance
-              .fetchGateLogs(societyId: widget.societyId),
+          onRefresh: _refreshLogs,
           child: ListView(
             padding: widget.showAppBar
                 ? const EdgeInsets.fromLTRB(16, 12, 16, 32)
@@ -122,13 +225,19 @@ class _VehicleGateLookupScreenState extends State<VehicleGateLookupScreen> {
                 ModuleHeader(
                   title: 'Gate check',
                   subtitle: 'Verify a plate, then log the movement',
-                  showBack: true,
+                  showBack: widget.showBack,
                 ),
                 const SizedBox(height: 12),
               ],
               _PlateEntryCard(
                 controller: _plateController,
                 isSearching: _isSearching,
+                // Keyboard up immediately on the pushed gate screen. Not in
+                // the admin dashboard's tab, and not in MainShell either —
+                // IndexedStack builds every page eagerly, so autofocus there
+                // would grab the keyboard on app launch from whatever tab the
+                // user is actually on.
+                autofocus: widget.showAppBar && widget.showBack,
                 onChanged: (_) => setState(() {}),
                 onClear: () => setState(() {
                   _plateController.clear();
@@ -144,6 +253,10 @@ class _VehicleGateLookupScreenState extends State<VehicleGateLookupScreen> {
                   isLogging: _isLogging,
                   onLog: _logEntry,
                   onCall: _call,
+                  onCallFlat: AppSession.instance.isGuard &&
+                          (_result!.flatId ?? '').isNotEmpty
+                      ? () => _callFlat(_result!.flatId!)
+                      : null,
                   onDismiss: () => setState(() => _result = null),
                 ),
               ],
@@ -151,27 +264,31 @@ class _VehicleGateLookupScreenState extends State<VehicleGateLookupScreen> {
               ModuleSectionHeader(
                 title: 'Today at the gate (${logs.length})',
                 trailing: 'Refresh',
-                onTrailing: () => VehiclesParkingService.instance
-                    .fetchGateLogs(societyId: widget.societyId),
+                onTrailing: _refreshLogs,
               ),
               const SizedBox(height: 8),
-              if (logs.isEmpty)
+              if (logError != null)
+                ModuleEmptyState(
+                  icon: Icons.cloud_off_rounded,
+                  title: 'Gate register unavailable',
+                  message: logError,
+                  actionLabel: 'Retry',
+                  onAction: _refreshLogs,
+                )
+              else if (logs.isEmpty)
                 const ModuleEmptyState(
                   icon: Icons.history_rounded,
-                  title: 'No movements noted yet',
+                  title: 'Nothing logged today yet',
                   message:
-                      'Look up a plate above — resident and visitor entries will list here.',
+                      'Look up a plate above — resident and visitor movements for today will list here.',
                 )
               else
                 ...logs.map((l) => Padding(
                       padding: const EdgeInsets.only(bottom: 8),
                       child: _GateLogRow(
                         log: l,
-                        onExit: l.isExited
-                            ? null
-                            : () => VehiclesParkingService.instance
-                                .logGateExit(
-                                    logId: l.id, societyId: widget.societyId),
+                        isExiting: _exiting.contains(l.id),
+                        onExit: l.isExited ? null : () => _markExit(l),
                       ),
                     )),
             ],
@@ -193,6 +310,7 @@ class _PlateEntryCard extends StatelessWidget {
   final ValueChanged<String> onChanged;
   final VoidCallback onClear;
   final VoidCallback onLookup;
+  final bool autofocus;
 
   const _PlateEntryCard({
     required this.controller,
@@ -200,6 +318,7 @@ class _PlateEntryCard extends StatelessWidget {
     required this.onChanged,
     required this.onClear,
     required this.onLookup,
+    this.autofocus = false,
   });
 
   @override
@@ -229,6 +348,16 @@ class _PlateEntryCard extends StatelessWidget {
                 child: TextField(
                   controller: controller,
                   textCapitalization: TextCapitalization.characters,
+                  autofocus: autofocus,
+                  textInputAction: TextInputAction.search,
+                  // The guard types this one-handed at a barrier; force the
+                  // register's own casing so "mh12ab1234" and "MH 12 AB 1234"
+                  // cannot become two different entries.
+                  inputFormatters: [
+                    LengthLimitingTextInputFormatter(16),
+                    TextInputFormatter.withFunction((oldValue, newValue) =>
+                        newValue.copyWith(text: newValue.text.toUpperCase())),
+                  ],
                   onChanged: onChanged,
                   onSubmitted: (_) => onLookup(),
                   style: const TextStyle(
@@ -308,6 +437,9 @@ class _VerdictCard extends StatelessWidget {
   final bool isLogging;
   final VoidCallback onLog;
   final ValueChanged<String> onCall;
+
+  /// Set for guards, who call through the logged RPC instead of [onCall].
+  final VoidCallback? onCallFlat;
   final VoidCallback onDismiss;
 
   const _VerdictCard({
@@ -316,6 +448,7 @@ class _VerdictCard extends StatelessWidget {
     required this.isLogging,
     required this.onLog,
     required this.onCall,
+    this.onCallFlat,
     required this.onDismiss,
   });
 
@@ -374,7 +507,23 @@ class _VerdictCard extends StatelessWidget {
                       result.slotNumber != null
                           ? 'Bay ${result.slotNumber}'
                           : 'No bay allotted'),
-                  if (result.residentPhone != null &&
+                  if (onCallFlat != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: OutlinedButton.icon(
+                        onPressed: onCallFlat,
+                        icon: const Icon(Icons.call_outlined, size: 16),
+                        label: const Text('Call flat',
+                            style: TextStyle(fontSize: 13)),
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size(0, 40),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+                    )
+                  else if (result.residentPhone != null &&
                       result.residentPhone!.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(top: 8),
@@ -496,8 +645,13 @@ class _VerdictCard extends StatelessWidget {
 class _GateLogRow extends StatelessWidget {
   final VehicleEntryLogItem log;
   final VoidCallback? onExit;
+  final bool isExiting;
 
-  const _GateLogRow({required this.log, this.onExit});
+  const _GateLogRow({
+    required this.log,
+    this.onExit,
+    this.isExiting = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -574,6 +728,19 @@ class _GateLogRow extends StatelessWidget {
                 Text('Out ${DateFormat('h:mm a').format(log.exitAt!)}',
                     style:
                         TextStyle(fontSize: 11, color: p.textTertiary))
+              else if (isExiting)
+                Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                  child: SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: p.primary,
+                    ),
+                  ),
+                )
               else if (onExit != null)
                 InkWell(
                   onTap: onExit,

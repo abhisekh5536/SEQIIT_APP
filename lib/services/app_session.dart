@@ -2,12 +2,14 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/db_models.dart';
+import '../models/guard_models.dart';
 
 /// Holds the signed-in user's role and profile data.
 ///
 /// Loaded once after login (and refreshed on demand):
 /// - [isAdmin]   -> row exists in society_admin_users
-/// - [societyId] -> the society this admin/resident belongs to
+/// - [isGuard]   -> active row in society_guards (migration 17)
+/// - [societyId] -> the society this admin/guard/resident belongs to
 /// - [myResidences] -> resident records linked to this account
 class AppSession extends ChangeNotifier {
   AppSession._();
@@ -37,14 +39,36 @@ class AppSession extends ChangeNotifier {
   ResidentJoinRequest? _pendingJoinRequest;
   int _pendingApprovalsCount = 0;
 
+  bool _isGuard = false;
+  GuardProfile? _guardProfile;
+  bool _guardDeactivated = false;
+
   bool get isLoading => _loading;
   bool get isLoaded => _loaded;
   bool get isAdmin => _isAdmin;
+
+  /// True when this account is an active gate guard.
+  ///
+  /// Read from `society_guards`, which only a society admin can write —
+  /// the same table `public.is_guard_or_admin()` checks, so client routing
+  /// and RLS agree on who a guard is. It used to come from the auth user's
+  /// `role` metadata, which every user can rewrite for themselves.
+  bool get isGuard => _isGuard;
+
+  /// The admin-maintained record behind [isGuard].
+  GuardProfile? get guardProfile => _guardProfile;
+
+  /// A guard whose access the society switched off. They get a screen that
+  /// says so rather than an empty resident home.
+  bool get isGuardDeactivated => _guardDeactivated;
+
   bool get isUnlinkedUser =>
       _loaded &&
       _client != null &&
       _client?.auth.currentUser != null &&
       !_isAdmin &&
+      !_isGuard &&
+      !_guardDeactivated &&
       _myResidences.isEmpty;
   String? get adminName => _adminName;
   String? get societyId => _societyId;
@@ -67,6 +91,10 @@ class AppSession extends ChangeNotifier {
   String? get displayName {
     if (_isAdmin && _adminName != null && _adminName!.trim().isNotEmpty) {
       return _adminName!.trim();
+    }
+    final guard = _guardProfile;
+    if (guard != null && guard.fullName.trim().isNotEmpty) {
+      return guard.fullName.trim();
     }
     final primary = primaryResidence;
     if (primary != null && primary.fullName.trim().isNotEmpty) {
@@ -143,15 +171,17 @@ class AppSession extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final results = await Future.wait([
+      final results = await Future.wait<Object?>([
         client.from('society_admin_users').select().eq('id', user.id),
         client.from('residents').select(
               '*, flats(id, block_id, floor_number, flat_number, type, status)',
             ).eq('user_id', user.id),
+        _fetchGuardRow(client, user.id),
       ]);
 
       final adminRows = (results[0] as List).cast<Map<String, dynamic>>();
       final residentRows = (results[1] as List).cast<Map<String, dynamic>>();
+      final guardRow = results[2] as Map<String, dynamic>?;
 
       final flats = <String, FlatInfo>{};
       final records = <ResidentRecord>[];
@@ -165,10 +195,25 @@ class AppSession extends ChangeNotifier {
       }
 
       _isAdmin = adminRows.isNotEmpty;
+
+      // An admin who is also listed as a guard stays an admin: the admin
+      // panel already covers everything the gate does.
+      final guard =
+          guardRow != null ? GuardProfile.fromMap(guardRow) : null;
+      _guardProfile =
+          (!_isAdmin && guard != null && guard.isActive) ? guard : null;
+      _isGuard = _guardProfile != null;
+      _guardDeactivated = !_isAdmin &&
+          guard != null &&
+          !guard.isActive &&
+          records.isEmpty;
+
       _adminName = _isAdmin ? adminRows.first['name'] as String? : null;
       _societyId = _isAdmin
           ? adminRows.first['society_id'] as String?
-          : (records.isNotEmpty ? records.first.societyId : null);
+          : _isGuard
+              ? _guardProfile!.societyId
+              : (records.isNotEmpty ? records.first.societyId : null);
       _myResidences = List.unmodifiable(records);
       _myFlats = Map.unmodifiable(flats);
 
@@ -199,8 +244,8 @@ class AppSession extends ChangeNotifier {
         await refreshAdminApprovalsCount();
       }
 
-      // If user is unlinked (neither admin nor linked resident), check for pending join request
-      if (!_isAdmin && records.isEmpty) {
+      // If user is unlinked (neither admin, guard nor linked resident), check for pending join request
+      if (!_isAdmin && !_isGuard && !_guardDeactivated && records.isEmpty) {
         await refreshJoinRequest();
       } else {
         _pendingJoinRequest = null;
@@ -261,6 +306,23 @@ class AppSession extends ChangeNotifier {
     }
   }
 
+  /// This account's `society_guards` row, active or not. Null on databases
+  /// without migration 17 — which is correct: no table, no guards.
+  Future<Map<String, dynamic>?> _fetchGuardRow(
+      SupabaseClient client, String userId) async {
+    try {
+      final row = await client
+          .from('society_guards')
+          .select('*, default_gate:society_gates(id, name)')
+          .eq('user_id', userId)
+          .maybeSingle();
+      return row;
+    } catch (e) {
+      debugPrint('Guard lookup unavailable: $e');
+      return null;
+    }
+  }
+
   Future<void> refreshAdminApprovalsCount() async {
     final client = _client;
     final socId = _societyId;
@@ -305,6 +367,9 @@ class AppSession extends ChangeNotifier {
   void reset() {
     _loaded = false;
     _isAdmin = false;
+    _isGuard = false;
+    _guardProfile = null;
+    _guardDeactivated = false;
     _adminName = null;
     _societyId = null;
     _societyName = null;

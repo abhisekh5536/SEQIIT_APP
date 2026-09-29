@@ -281,7 +281,10 @@ class _NoticeDetailScreenState extends State<NoticeDetailScreen> {
             ],
 
             // Mandatory Acknowledgment Section
-            if (_notice.requiresAcknowledgment) ...[
+            // Acknowledgment is counted per resident; a guard has no
+            // resident record to sign it with.
+            if (_notice.requiresAcknowledgment &&
+                !AppSession.instance.isGuard) ...[
               _buildAcknowledgmentSection(context, p),
               const SizedBox(height: 24),
             ],

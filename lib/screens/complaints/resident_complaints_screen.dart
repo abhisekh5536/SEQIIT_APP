@@ -321,7 +321,7 @@ class _ResidentComplaintsScreenState extends State<ResidentComplaintsScreen>
       child: ListView.separated(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 88),
         itemCount: list.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 12),
+        separatorBuilder: (_, _) => const SizedBox(height: 12),
         itemBuilder: (context, index) {
           final complaint = list[index];
           return _buildComplaintCard(complaint, p: p, textTheme: textTheme);

@@ -1,4 +1,4 @@
-import 'dart:convert';
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
@@ -7,6 +7,49 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/visitor_models.dart';
 import 'app_session.dart';
 import 'notifications_service.dart';
+
+/// Health of the live connection, so screens can say so rather than
+/// quietly going stale.
+enum LiveStatus {
+  /// No subscription attempted yet.
+  idle,
+
+  /// Socket is being established or re-established.
+  connecting,
+
+  /// Subscribed; changes arrive as they happen.
+  live,
+
+  /// Subscription failed or dropped — the service is polling instead.
+  degraded,
+}
+
+/// What changed on a visitor row, as seen from the gate.
+class VisitorLiveEvent {
+  final VisitorRecord visitor;
+
+  /// Status before the change; null for a newly created row.
+  final VisitorStatus? previousStatus;
+
+  final bool isNew;
+
+  const VisitorLiveEvent({
+    required this.visitor,
+    this.previousStatus,
+    this.isNew = false,
+  });
+
+  /// A resident just answered a gate request the guard is waiting on.
+  bool get isApprovalDecision =>
+      !isNew &&
+      previousStatus == VisitorStatus.pendingApproval &&
+      (visitor.status == VisitorStatus.approved ||
+          visitor.status == VisitorStatus.denied);
+
+  /// A fresh request landed on the resident's phone.
+  bool get isNewGateRequest =>
+      isNew && visitor.status == VisitorStatus.pendingApproval;
+}
 
 class VisitorsService extends ChangeNotifier {
   VisitorsService._();
@@ -28,8 +71,218 @@ class VisitorsService extends ChangeNotifier {
   static const _selectBasicJoins =
       '*, flats(flat_number, blocks(name))';
 
+  /// True only when the RPC does not exist on this database (an older
+  /// schema). A refusal from an RPC that does exist must reach the user: the
+  /// direct-table fallbacks below would otherwise retry the same action
+  /// under different rules, or hide the server's reason.
+  static bool _isMissingRpc(Object e) =>
+      e is PostgrestException && (e.code == 'PGRST202' || e.code == '42883');
+
+  /// Unwraps the `{success, error}` envelope the visitor RPCs return.
+  static Map<String, dynamic> _rpcOk(dynamic res, String fallbackError) {
+    if (res is Map) {
+      final map = Map<String, dynamic>.from(res);
+      if (map['success'] == true) return map;
+      throw Exception(map['error']?.toString() ?? fallbackError);
+    }
+    throw Exception(fallbackError);
+  }
+
+  /// Role written into the audit trail by the direct fallbacks. The RPCs
+  /// derive it on the server; this only matters on pre-RPC schemas.
+  static String get _gateRole =>
+      AppSession.instance.isGuard ? 'guard' : 'society_admin';
+
+  // ── Realtime ──────────────────────────────────────────────────
+  //
+  // The gate flow is a conversation between two phones: the guard logs a
+  // visitor, the resident answers. Polling made the guard hammer refresh
+  // while a decision sat unseen. This subscribes to the `visitors` table
+  // over the socket supabase_flutter already holds, so both sides see the
+  // change the moment it is written.
+
+  RealtimeChannel? _visitorsChannel;
+  String? _realtimeSocietyId;
+  LiveStatus _liveStatus = LiveStatus.idle;
+  Timer? _pollTimer;
+  Timer? _retryTimer;
+  int _retryAttempt = 0;
+
+  final _eventController = StreamController<VisitorLiveEvent>.broadcast();
+
+  /// Fires once per visitor row change visible to this user.
+  Stream<VisitorLiveEvent> get onVisitorEvent => _eventController.stream;
+
+  LiveStatus get liveStatus => _liveStatus;
+  bool get isLive => _liveStatus == LiveStatus.live;
+
+  void _setLiveStatus(LiveStatus status) {
+    if (_liveStatus == status) return;
+    _liveStatus = status;
+    notifyListeners();
+  }
+
+  /// Subscribes to visitor changes for [societyId]. Safe to call repeatedly —
+  /// re-subscribes only when the society actually changes.
+  void initRealtime(String societyId) {
+    if (_safeClient == null || societyId.isEmpty) return;
+    if (_visitorsChannel != null && _realtimeSocietyId == societyId) return;
+
+    _teardownChannel();
+    _realtimeSocietyId = societyId;
+    _setLiveStatus(LiveStatus.connecting);
+
+    try {
+      _visitorsChannel = _client
+          .channel('public:visitors:$societyId')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'visitors',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'society_id',
+              value: societyId,
+            ),
+            callback: _handleVisitorChange,
+          )
+          .subscribe((status, error) {
+            switch (status) {
+              case RealtimeSubscribeStatus.subscribed:
+                _retryAttempt = 0;
+                _stopPolling();
+                _setLiveStatus(LiveStatus.live);
+                break;
+              case RealtimeSubscribeStatus.channelError:
+              case RealtimeSubscribeStatus.timedOut:
+              case RealtimeSubscribeStatus.closed:
+                debugPrint('Visitors realtime status=$status error=$error');
+                _degradeToPolling();
+                break;
+            }
+          });
+    } catch (e) {
+      debugPrint('Error establishing visitors realtime channel: $e');
+      _degradeToPolling();
+    }
+  }
+
+  Future<void> _handleVisitorChange(PostgresChangePayload payload) async {
+    try {
+      final newRow = payload.newRecord;
+      if (newRow.isEmpty) {
+        notifyListeners();
+        return;
+      }
+
+      final visitorId = newRow['id']?.toString();
+      if (visitorId == null || visitorId.isEmpty) return;
+
+      final oldRow = payload.oldRecord;
+      final previousStatus = (oldRow.isNotEmpty && oldRow['status'] != null)
+          ? VisitorStatus.fromDb(oldRow['status']?.toString())
+          : null;
+
+      // The change payload has no joined flat/block, so re-read the row for
+      // a record the UI can render in full. Fall back to the raw payload if
+      // that read is refused.
+      VisitorRecord record;
+      try {
+        final full = await _client
+            .from('visitors')
+            .select(_selectBasicJoins)
+            .eq('id', visitorId)
+            .maybeSingle();
+        record = VisitorRecord.fromMap(full ?? newRow);
+      } catch (_) {
+        record = VisitorRecord.fromMap(newRow);
+      }
+
+      if (!_eventController.isClosed) {
+        _eventController.add(VisitorLiveEvent(
+          visitor: record,
+          previousStatus: previousStatus,
+          isNew: payload.eventType == PostgresChangeEvent.insert,
+        ));
+      }
+
+      notifyListeners();
+    } catch (e) {
+      debugPrint('VisitorsService._handleVisitorChange error: $e');
+    }
+  }
+
+  /// When the socket will not hold, fall back to a slow poll rather than
+  /// leaving the guard on a frozen screen, and keep trying to get back on
+  /// the socket with a backoff.
+  void _degradeToPolling() {
+    _setLiveStatus(LiveStatus.degraded);
+    _startPolling();
+
+    _retryTimer?.cancel();
+    _retryAttempt = (_retryAttempt + 1).clamp(1, 6);
+    final delay = Duration(seconds: 5 * (1 << (_retryAttempt - 1)));
+    _retryTimer = Timer(delay, () {
+      final societyId = _realtimeSocietyId;
+      if (societyId == null || _liveStatus == LiveStatus.live) return;
+      _teardownChannel();
+      initRealtime(societyId);
+    });
+  }
+
+  void _startPolling() {
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+      // Listeners re-run their own fetch; this is only a heartbeat.
+      notifyListeners();
+    });
+  }
+
+  void _stopPolling() {
+    _pollTimer?.cancel();
+    _pollTimer = null;
+  }
+
+  void _teardownChannel() {
+    final channel = _visitorsChannel;
+    _visitorsChannel = null;
+    if (channel != null) {
+      try {
+        _client.removeChannel(channel);
+      } catch (_) {}
+    }
+  }
+
+  /// Drops the subscription — call on sign-out.
+  void disposeRealtime() {
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    _stopPolling();
+    _teardownChannel();
+    _realtimeSocietyId = null;
+    _retryAttempt = 0;
+    _setLiveStatus(LiveStatus.idle);
+  }
+
+  @override
+  void dispose() {
+    disposeRealtime();
+    _eventController.close();
+    super.dispose();
+  }
+
+  /// Default page size for list screens.
+  ///
+  /// These queries had no limit at all, so a two-year-old society meant
+  /// pulling tens of thousands of rows onto a phone every time a filter chip
+  /// was tapped.
+  static const int defaultPageSize = 50;
+
   // ── Fetch: Resident's visitors (own flat) ─────────────────────
-  Future<List<VisitorRecord>> fetchResidentVisitors() async {
+  Future<List<VisitorRecord>> fetchResidentVisitors({
+    int limit = defaultPageSize,
+    int offset = 0,
+  }) async {
     if (_safeClient == null) return [];
 
     final session = AppSession.instance;
@@ -41,7 +294,8 @@ class VisitorsService extends ChangeNotifier {
           .from('visitors')
           .select(_selectBasicJoins)
           .inFilter('flat_id', flatIds)
-          .order('created_at', ascending: false);
+          .order('created_at', ascending: false)
+          .range(offset, offset + limit - 1);
 
       final list = (res as List).cast<Map<String, dynamic>>();
       return list.map(VisitorRecord.fromMap).toList();
@@ -57,6 +311,8 @@ class VisitorsService extends ChangeNotifier {
     String? categoryFilter,
     String? searchQuery,
     DateTime? dateFilter,
+    int limit = defaultPageSize,
+    int offset = 0,
   }) async {
     if (_safeClient == null) return [];
     final societyId = AppSession.instance.societyId;
@@ -84,7 +340,9 @@ class VisitorsService extends ChangeNotifier {
             .lt('created_at', end.toIso8601String());
       }
 
-      final res = await query.order('created_at', ascending: false);
+      final res = await query
+          .order('created_at', ascending: false)
+          .range(offset, offset + limit - 1);
       var list = (res as List)
           .cast<Map<String, dynamic>>()
           .map(VisitorRecord.fromMap)
@@ -171,9 +429,9 @@ class VisitorsService extends ChangeNotifier {
     String? vehicleNumber,
     required VisitorCategory category,
     String? companyOrContext,
+    String? gateId,
   }) async {
     try {
-      // Try RPC first
       try {
         final rpcRes = await _client.rpc('create_visitor_entry', params: {
           'p_society_id': societyId,
@@ -185,24 +443,26 @@ class VisitorsService extends ChangeNotifier {
           'p_vehicle_number': vehicleNumber,
           'p_category': category.dbValue,
           'p_company_or_context': companyOrContext,
+          // Only sent when set, so databases before migration 17 (which
+          // have no such parameter) still resolve the function.
+          'p_gate_id': ?gateId,
         });
 
-        if (rpcRes is Map && rpcRes['success'] == true) {
-          return rpcRes['visitor_id']?.toString() ?? '';
-        } else if (rpcRes is Map && rpcRes['error'] != null) {
-          throw Exception(rpcRes['error']);
-        }
-      } catch (rpcError) {
-        debugPrint('create_visitor_entry RPC failed, falling back: $rpcError');
+        final map = _rpcOk(rpcRes, 'Could not log the visitor');
+        notifyListeners();
+        return map['visitor_id']?.toString() ?? '';
+      } on PostgrestException catch (rpcError) {
+        if (!_isMissingRpc(rpcError)) rethrow;
+        debugPrint('create_visitor_entry RPC missing, inserting directly: $rpcError');
       }
 
-      // Direct fallback
+      // Direct fallback for schemas without the RPC.
       final user = _client.auth.currentUser;
       final insertRes = await _client.from('visitors').insert({
         'society_id': societyId,
         'flat_id': flatId,
         'block_id': blockId,
-        'created_by_type': 'society_admin',
+        'created_by_type': _gateRole,
         'created_by': user?.id,
         'visitor_name': visitorName.trim(),
         'visitor_phone': visitorPhone?.trim(),
@@ -223,7 +483,7 @@ class VisitorsService extends ChangeNotifier {
         'to_status': 'pending_approval',
         'note': 'Visitor logged at gate',
         'changed_by': user?.id,
-        'changed_by_role': 'society_admin',
+        'changed_by_role': _gateRole,
       });
 
       notifyListeners();
@@ -251,7 +511,6 @@ class VisitorsService extends ChangeNotifier {
     List<Map<String, String>> groupMembers = const [],
   }) async {
     try {
-      // Try RPC first
       try {
         final rpcRes = await _client.rpc('create_pre_approval', params: {
           'p_society_id': societyId,
@@ -271,16 +530,15 @@ class VisitorsService extends ChangeNotifier {
               .toList(),
         });
 
-        if (rpcRes is Map && rpcRes['success'] == true) {
-          return {
-            'visitor_id': rpcRes['visitor_id']?.toString() ?? '',
-            'approval_code': rpcRes['approval_code']?.toString() ?? '',
-          };
-        } else if (rpcRes is Map && rpcRes['error'] != null) {
-          throw Exception(rpcRes['error']);
-        }
-      } catch (rpcError) {
-        debugPrint('create_pre_approval RPC failed, falling back: $rpcError');
+        final map = _rpcOk(rpcRes, 'Could not create the pre-approval');
+        notifyListeners();
+        return {
+          'visitor_id': map['visitor_id']?.toString() ?? '',
+          'approval_code': map['approval_code']?.toString() ?? '',
+        };
+      } on PostgrestException catch (rpcError) {
+        if (!_isMissingRpc(rpcError)) rethrow;
+        debugPrint('create_pre_approval RPC missing, inserting directly: $rpcError');
       }
 
       // Direct fallback
@@ -359,7 +617,6 @@ class VisitorsService extends ChangeNotifier {
   }) async {
     String? codeResult;
     try {
-      // Try RPC first
       bool rpcSucceeded = false;
       try {
         final rpcRes = await _client.rpc('respond_to_visitor_request', params: {
@@ -368,15 +625,16 @@ class VisitorsService extends ChangeNotifier {
           'p_denied_reason': deniedReason,
         });
 
-        if (rpcRes is Map && rpcRes['success'] == true) {
-          codeResult = rpcRes['approval_code']?.toString();
-          rpcSucceeded = true;
-        } else if (rpcRes is Map && rpcRes['error'] != null) {
-          throw Exception(rpcRes['error']);
-        }
-      } catch (rpcError) {
+        // A refusal ("You are not a resident of this flat") is final. It
+        // used to fall through to a direct update, which an admin's RLS
+        // allowed — approving on the resident's behalf by accident.
+        final map = _rpcOk(rpcRes, 'Could not record your answer');
+        codeResult = map['approval_code']?.toString();
+        rpcSucceeded = true;
+      } on PostgrestException catch (rpcError) {
+        if (!_isMissingRpc(rpcError)) rethrow;
         debugPrint(
-            'respond_to_visitor_request RPC failed, falling back: $rpcError');
+            'respond_to_visitor_request RPC missing, updating directly: $rpcError');
       }
 
       if (!rpcSucceeded) {
@@ -451,12 +709,12 @@ class VisitorsService extends ChangeNotifier {
           'p_visitor_id': visitorId,
           'p_entry_gate': entryGate,
         });
-        if (rpcRes is Map && rpcRes['success'] == true) return;
-        if (rpcRes is Map && rpcRes['error'] != null) {
-          throw Exception(rpcRes['error']);
-        }
-      } catch (rpcError) {
-        debugPrint('check_in_visitor RPC failed, falling back: $rpcError');
+        _rpcOk(rpcRes, 'Could not check the visitor in');
+        notifyListeners();
+        return;
+      } on PostgrestException catch (rpcError) {
+        if (!_isMissingRpc(rpcError)) rethrow;
+        debugPrint('check_in_visitor RPC missing, updating directly: $rpcError');
       }
 
       final user = _client.auth.currentUser;
@@ -473,7 +731,7 @@ class VisitorsService extends ChangeNotifier {
         'to_status': 'checked_in',
         'note': entryGate != null ? 'Checked in at $entryGate' : 'Checked in',
         'changed_by': user?.id,
-        'changed_by_role': 'society_admin',
+        'changed_by_role': _gateRole,
       });
       notifyListeners();
     } catch (e) {
@@ -488,12 +746,12 @@ class VisitorsService extends ChangeNotifier {
         final rpcRes = await _client.rpc('check_out_visitor', params: {
           'p_visitor_id': visitorId,
         });
-        if (rpcRes is Map && rpcRes['success'] == true) return;
-        if (rpcRes is Map && rpcRes['error'] != null) {
-          throw Exception(rpcRes['error']);
-        }
-      } catch (rpcError) {
-        debugPrint('check_out_visitor RPC failed, falling back: $rpcError');
+        _rpcOk(rpcRes, 'Could not check the visitor out');
+        notifyListeners();
+        return;
+      } on PostgrestException catch (rpcError) {
+        if (!_isMissingRpc(rpcError)) rethrow;
+        debugPrint('check_out_visitor RPC missing, updating directly: $rpcError');
       }
 
       final user = _client.auth.currentUser;
@@ -509,7 +767,7 @@ class VisitorsService extends ChangeNotifier {
         'to_status': 'checked_out',
         'note': 'Checked out',
         'changed_by': user?.id,
-        'changed_by_role': 'society_admin',
+        'changed_by_role': _gateRole,
       });
       notifyListeners();
     } catch (e) {
@@ -525,12 +783,12 @@ class VisitorsService extends ChangeNotifier {
         final rpcRes = await _client.rpc('cancel_pre_approval', params: {
           'p_visitor_id': visitorId,
         });
-        if (rpcRes is Map && rpcRes['success'] == true) return;
-        if (rpcRes is Map && rpcRes['error'] != null) {
-          throw Exception(rpcRes['error']);
-        }
-      } catch (rpcError) {
-        debugPrint('cancel_pre_approval RPC failed, falling back: $rpcError');
+        _rpcOk(rpcRes, 'Could not cancel the pre-approval');
+        notifyListeners();
+        return;
+      } on PostgrestException catch (rpcError) {
+        if (!_isMissingRpc(rpcError)) rethrow;
+        debugPrint('cancel_pre_approval RPC missing, updating directly: $rpcError');
       }
 
       final user = _client.auth.currentUser;
@@ -558,27 +816,45 @@ class VisitorsService extends ChangeNotifier {
     try {
       try {
         final rpcRes = await _client.rpc('verify_pre_approval', params: {
-          'p_approval_code': approvalCode.trim(),
+          'p_approval_code': approvalCode.trim().toUpperCase(),
+          'p_society_id': AppSession.instance.societyId,
         });
-        if (rpcRes is Map && rpcRes['success'] == true) {
-          return Map<String, dynamic>.from(rpcRes);
-        } else if (rpcRes is Map && rpcRes['error'] != null) {
-          throw Exception(rpcRes['error']);
-        }
-      } catch (rpcError) {
-        debugPrint('verify_pre_approval RPC failed, falling back: $rpcError');
+        // "Too many attempts" and "expired" must reach the gate as said.
+        // Falling back to a direct lookup here would also sidestep the
+        // server's attempt throttle.
+        return _rpcOk(rpcRes, 'No valid visitor found for this code');
+      } on PostgrestException catch (rpcError) {
+        if (!_isMissingRpc(rpcError)) rethrow;
+        debugPrint('verify_pre_approval RPC missing, querying directly: $rpcError');
       }
 
-      // Direct fallback
+      // Direct fallback for databases without the RPC. RLS scopes this to
+      // the caller's own society, but the validity rules the RPC enforces
+      // have to be repeated here or an expired pass would still verify.
       final res = await _client
           .from('visitors')
           .select(_selectBasicJoins)
-          .eq('approval_code', approvalCode.trim())
+          .eq('approval_code', approvalCode.trim().toUpperCase())
           .maybeSingle();
 
       if (res == null) return null;
 
       final visitor = VisitorRecord.fromMap(res);
+
+      const deadStatuses = {
+        VisitorStatus.denied,
+        VisitorStatus.cancelled,
+        VisitorStatus.expired,
+        VisitorStatus.checkedOut,
+      };
+      if (deadStatuses.contains(visitor.status)) {
+        throw Exception(
+            'This pass is no longer valid (${visitor.status.label})');
+      }
+      if (!visitor.isWithinValidity) {
+        throw Exception('This pass has expired');
+      }
+
       final members = await fetchGroupMembers(visitor.id);
 
       return {
@@ -646,14 +922,17 @@ class VisitorsService extends ChangeNotifier {
       debugPrint('complaint-photos fallback upload failed: $e');
     }
 
-    // 3. Fallback: Base64 data URI
-    try {
-      final b64 = base64Encode(bytes);
-      return 'data:image/$fileExtension;base64,$b64';
-    } catch (e) {
-      debugPrint('Base64 encoding fallback failed: $e');
-      return null;
-    }
+    // No third fallback on purpose.
+    //
+    // This used to base64-encode the image into the returned string, which
+    // then landed in visitors.visitor_photo_url — a Postgres text column
+    // dragged into every list query. Because it was silent, a misconfigured
+    // bucket could make that the normal path for months.
+    //
+    // Returning null lets the caller save the visitor without a photo and
+    // say so, which is the honest outcome.
+    debugPrint('All visitor photo uploads failed; saving without a photo.');
+    return null;
   }
 
   // ── Stats ─────────────────────────────────────────────────────

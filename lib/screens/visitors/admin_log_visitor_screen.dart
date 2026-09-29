@@ -5,12 +5,26 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../models/visitor_models.dart';
 import '../../services/app_session.dart';
+import '../../services/guard_service.dart';
 import '../../services/visitors_service.dart';
 import '../../theme/app_theme.dart';
 
-/// Admin gate stand-in: log a walk-in visitor (Flow A).
+/// Log a walk-in visitor (Flow A). Used by the guard panel and by admins
+/// working the gate.
 class AdminLogVisitorScreen extends StatefulWidget {
-  const AdminLogVisitorScreen({super.key});
+  /// Pre-selects the category — the guard picked "Delivery" on the home
+  /// screen and should not have to pick it again.
+  final VisitorCategory? initialCategory;
+
+  /// Called with the new visitor id instead of popping. The guard panel
+  /// uses it to move straight to the waiting screen.
+  final ValueChanged<String>? onLogged;
+
+  const AdminLogVisitorScreen({
+    super.key,
+    this.initialCategory,
+    this.onLogged,
+  });
 
   @override
   State<AdminLogVisitorScreen> createState() => _AdminLogVisitorScreenState();
@@ -33,9 +47,12 @@ class _AdminLogVisitorScreenState extends State<AdminLogVisitorScreen> {
   Map<String, dynamic>? _selectedFlat;
   bool _loadingFlats = true;
 
+  bool get _isGuard => AppSession.instance.isGuard;
+
   @override
   void initState() {
     super.initState();
+    _category = widget.initialCategory ?? VisitorCategory.guest;
     _loadFlats();
   }
 
@@ -185,13 +202,18 @@ class _AdminLogVisitorScreenState extends State<AdminLogVisitorScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Log Visitor Entry',
+                          _isGuard
+                              ? 'New ${_category.label.toLowerCase()} entry'
+                              : 'Log Visitor Entry',
                           style: textTheme.titleLarge?.copyWith(
                             fontWeight: FontWeight.w800,
                           ),
                         ),
                         Text(
-                          'Gate stand-in · Flow A',
+                          _isGuard
+                              ? (GuardService.instance.currentGate?.name ??
+                                  'At the gate')
+                              : 'Gate stand-in · Flow A',
                           style: textTheme.bodySmall?.copyWith(
                             color: p.textTertiary,
                           ),
@@ -313,9 +335,8 @@ class _AdminLogVisitorScreenState extends State<AdminLogVisitorScreen> {
                       ),
                       const SizedBox(height: 14),
 
-                      // Vehicle
-                      if (_category == VisitorCategory.cab ||
-                          _category == VisitorCategory.delivery) ...[
+                      // Vehicle — any single visitor may arrive in one.
+                      if (_category != VisitorCategory.groupInvite) ...[
                         _buildField(
                           'Vehicle Number (Optional)',
                           _vehicleCtrl,
@@ -446,7 +467,7 @@ class _AdminLogVisitorScreenState extends State<AdminLogVisitorScreen> {
           )
         else
           DropdownButtonFormField<String>(
-            value: _selectedFlatId,
+            initialValue: _selectedFlatId,
             validator: (v) =>
                 v == null || v.trim().isEmpty ? 'Select a flat' : null,
             decoration: InputDecoration(
@@ -586,7 +607,7 @@ class _AdminLogVisitorScreenState extends State<AdminLogVisitorScreen> {
                         : ListView.separated(
                             padding: const EdgeInsets.fromLTRB(20, 6, 20, 20),
                             itemCount: filtered.length,
-                            separatorBuilder: (_, __) =>
+                            separatorBuilder: (_, _) =>
                                 Divider(color: p.hairline, height: 1),
                             itemBuilder: (ctx, i) {
                               final f = filtered[i];
@@ -816,6 +837,10 @@ class _AdminLogVisitorScreenState extends State<AdminLogVisitorScreen> {
   Future<void> _submit() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
+    // Captured before Navigator.pop, which disposes this context's route.
+    final messenger = ScaffoldMessenger.of(context);
+    final palette = AppTheme.paletteFor(Theme.of(context).brightness);
+
     setState(() => _submitting = true);
 
     try {
@@ -845,7 +870,17 @@ class _AdminLogVisitorScreenState extends State<AdminLogVisitorScreen> {
       final blockId = selectedFlat['block_id']?.toString();
       final societyId = AppSession.instance.societyId!;
 
-      await VisitorsService.instance.createVisitorEntry(
+      // Say so rather than pretend: the entry is still worth sending.
+      if (_photoBytes != null && photoUrl == null) {
+        messenger.showSnackBar(
+          SnackBar(
+            content: const Text('Photo upload failed — sending without a photo'),
+            backgroundColor: palette.warning,
+          ),
+        );
+      }
+
+      final visitorId = await VisitorsService.instance.createVisitorEntry(
         societyId: societyId,
         flatId: flatId,
         blockId: blockId,
@@ -861,16 +896,23 @@ class _AdminLogVisitorScreenState extends State<AdminLogVisitorScreen> {
         companyOrContext: _companyCtrl.text.trim().isNotEmpty
             ? _companyCtrl.text.trim()
             : null,
+        gateId: _isGuard ? GuardService.instance.currentGate?.id : null,
       );
+
+      if (!mounted) return;
+      final onLogged = widget.onLogged;
+      if (onLogged != null && visitorId.isNotEmpty) {
+        onLogged(visitorId);
+        return;
+      }
 
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
           SnackBar(
             content: const Text(
                 'Visitor logged! Waiting for resident approval.'),
-            backgroundColor:
-                AppTheme.paletteFor(Theme.of(context).brightness).success,
+            backgroundColor: palette.success,
           ),
         );
       }
@@ -878,7 +920,7 @@ class _AdminLogVisitorScreenState extends State<AdminLogVisitorScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error: $e'),
+            content: Text(e.toString().replaceFirst('Exception: ', '')),
             backgroundColor: Colors.redAccent,
           ),
         );

@@ -5,12 +5,29 @@ import 'package:flutter/material.dart';
 import '../../../models/visitor_models.dart';
 import '../../../theme/app_theme.dart';
 
-/// Compact visitor list card used in both resident and admin screens.
+/// Compact visitor list card used in resident, admin and guard screens.
 class VisitorCard extends StatelessWidget {
   final VisitorRecord visitor;
   final VoidCallback? onTap;
 
-  const VisitorCard({super.key, required this.visitor, this.onTap});
+  /// False on the gate: a guard must ask for the pass, not read it off the
+  /// list.
+  final bool showCode;
+
+  /// Action shown at the end of the row, e.g. the gate's "Out" button.
+  final Widget? trailing;
+
+  /// Overrides the border, e.g. to flag an overstaying visitor.
+  final Color? borderColor;
+
+  const VisitorCard({
+    super.key,
+    required this.visitor,
+    this.onTap,
+    this.showCode = true,
+    this.trailing,
+    this.borderColor,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -26,10 +43,11 @@ class VisitorCard extends StatelessWidget {
           color: p.card,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
-            color: visitor.isPending
-                ? p.warning.withValues(alpha: 0.5)
-                : p.hairline,
-            width: visitor.isPending ? 1.5 : 1.0,
+            color: borderColor ??
+                (visitor.isPending
+                    ? p.warning.withValues(alpha: 0.5)
+                    : p.hairline),
+            width: (borderColor != null || visitor.isPending) ? 1.5 : 1.0,
           ),
           boxShadow: [
             BoxShadow(
@@ -90,7 +108,8 @@ class VisitorCard extends StatelessWidget {
                   const SizedBox(height: 4),
                   Row(
                     children: [
-                      if (visitor.isPreApproved &&
+                      if (showCode &&
+                          visitor.isPreApproved &&
                           visitor.approvalCode != null) ...[
                         Container(
                           padding: const EdgeInsets.symmetric(
@@ -132,6 +151,10 @@ class VisitorCard extends StatelessWidget {
                 ],
               ),
             ),
+            if (trailing != null) ...[
+              const SizedBox(width: 10),
+              trailing!,
+            ],
           ],
         ),
       ),
@@ -166,7 +189,7 @@ class VisitorCard extends StatelessWidget {
               width: 48,
               height: 48,
               fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => _defaultAvatar(p),
+              errorBuilder: (_, _, _) => _defaultAvatar(p),
             ),
           );
         } catch (_) {}
@@ -178,7 +201,7 @@ class VisitorCard extends StatelessWidget {
           width: 48,
           height: 48,
           fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => _defaultAvatar(p),
+          errorBuilder: (_, _, _) => _defaultAvatar(p),
         ),
       );
     }

@@ -50,6 +50,8 @@ class _ParkingPolicyDialogState extends State<ParkingPolicyDialog> {
   }
 
   Future<void> _save() async {
+    // Captured before Navigator.pop, which disposes this context's route.
+    final messenger = ScaffoldMessenger.of(context);
     setState(() => _saving = true);
     try {
       await VehiclesParkingService.instance.updateParkingPolicy(
@@ -60,7 +62,7 @@ class _ParkingPolicyDialogState extends State<ParkingPolicyDialog> {
       widget.onSaved();
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
           const SnackBar(content: Text('Parking rules saved')),
         );
       }

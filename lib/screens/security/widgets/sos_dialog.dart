@@ -55,6 +55,11 @@ class _SosDialogState extends State<SosDialog> {
       return;
     }
 
+    // Captured before the pop below: after Navigator.pop this context's
+    // route is gone, and an emergency confirmation is the last message that
+    // should be allowed to vanish.
+    final messenger = ScaffoldMessenger.of(context);
+
     setState(() {
       _isSubmitting = true;
       _errorMessage = null;
@@ -74,7 +79,7 @@ class _SosDialogState extends State<SosDialog> {
       if (result['success'] == true) {
         widget.onAlertCreated?.call();
         Navigator.pop(context, true);
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
           SnackBar(
             backgroundColor: const Color(0xFFD32F2F),
             content: const Row(

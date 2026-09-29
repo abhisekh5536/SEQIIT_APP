@@ -27,11 +27,53 @@ class VehiclesParkingService extends ChangeNotifier {
   List<VehicleEntryLogItem> _recentLogs = [];
   ParkingPolicyConfig? _policyConfig;
 
+  List<ParkingBayRequestItem> _bayRequests = [];
+
   List<ParkingSlotItem> get slots => List.unmodifiable(_slots);
   List<VehicleItem> get societyVehicles => List.unmodifiable(_societyVehicles);
   List<ParkingAllocationItem> get allocations => List.unmodifiable(_allocations);
   List<VehicleEntryLogItem> get recentLogs => List.unmodifiable(_recentLogs);
+  List<ParkingBayRequestItem> get bayRequests => List.unmodifiable(_bayRequests);
   ParkingPolicyConfig? get policyConfig => _policyConfig;
+
+  /// Last load error per data set, so screens can show a real failure
+  /// instead of silently rendering stale or sample rows.
+  final Map<String, String> _loadErrors = {};
+
+  String? errorFor(String key) => _loadErrors[key];
+  bool get hasAnyError => _loadErrors.isNotEmpty;
+
+  void _setError(String key, Object e) {
+    _loadErrors[key] = _humanize(e);
+    debugPrint('VehiclesParkingService[$key] error: $e');
+  }
+
+  void _clearError(String key) => _loadErrors.remove(key);
+
+  String _humanize(Object e) {
+    if (e is PostgrestException) {
+      if (e.code == '42501' || e.message.toLowerCase().contains('row-level security')) {
+        return 'You do not have access to this society\'s parking records.';
+      }
+      if (e.code == '22P02') {
+        return 'This account is not linked to a society yet.';
+      }
+      return e.message;
+    }
+    final s = e.toString();
+    if (s.contains('SocketException') ||
+        s.contains('Failed host lookup') ||
+        s.contains('ClientException')) {
+      return 'No connection to the server. Check the network and retry.';
+    }
+    return s.replaceFirst('Exception: ', '');
+  }
+
+  /// Sample rows are only ever used when Supabase itself is not wired up
+  /// (widget tests, previews). They must never stand in for a failed query —
+  /// a guard reading invented entries out of the gate register is worse
+  /// than a guard seeing an error.
+  bool get _isOffline => _safeClient == null;
 
   // ─────────────────────────────────────────────────────────────
   // 1. SLOTS INVENTORY (Society Admin)
@@ -43,8 +85,14 @@ class VehiclesParkingService extends ChangeNotifier {
     SlotStatus? statusFilter,
     VehicleType? typeFilter,
   }) async {
-    if (_safeClient == null) {
+    if (_isOffline) {
       _slots = _mockSlots();
+      notifyListeners();
+      return _slots;
+    }
+    if (societyId.isEmpty) {
+      _slots = [];
+      _setError('slots', 'This account is not linked to a society yet.');
       notifyListeners();
       return _slots;
     }
@@ -77,14 +125,13 @@ class VehiclesParkingService extends ChangeNotifier {
       final res = await query.order('slot_number', ascending: true);
       final list = (res as List).cast<Map<String, dynamic>>();
       _slots = list.map(ParkingSlotItem.fromMap).toList();
+      _clearError('slots');
       notifyListeners();
       return _slots;
     } catch (e) {
-      debugPrint('VehiclesParkingService.fetchSlots error: $e');
-      if (_slots.isEmpty) {
-        _slots = _mockSlots();
-        notifyListeners();
-      }
+      _slots = [];
+      _setError('slots', e);
+      notifyListeners();
       return _slots;
     }
   }
@@ -301,20 +348,25 @@ class VehiclesParkingService extends ChangeNotifier {
             throw Exception(map['error'] ?? 'Slot allocation failed');
           }
         }
-      } catch (rpcErr) {
-        if (rpcErr is Exception && rpcErr.toString().contains('Permission denied')) {
+      } on PostgrestException catch (rpcErr) {
+        // Only fallback to direct insert if the RPC function itself does not exist (code 42883)
+        if (rpcErr.code == '42883') {
+          debugPrint('allocate_parking_slot RPC missing, trying direct insert fallback: $rpcErr');
+        } else {
           rethrow;
         }
-        debugPrint('allocate_parking_slot RPC failed, trying direct insert: $rpcErr');
+      } catch (e) {
+        // Rethrow business validation exceptions or permission errors
+        rethrow;
       }
 
-      // 2. Direct insert fallback
+      // 2. Direct insert fallback (only reached if RPC function is not in database)
       final res = await _client.from('parking_allocations').insert({
         'society_id': societyId,
         'slot_id': slotId,
         'flat_id': flatId,
-        if (residentId != null) 'resident_id': residentId,
-        if (vehicleId != null) 'vehicle_id': vehicleId,
+        'resident_id': ?residentId,
+        'vehicle_id': ?vehicleId,
         'allocated_from': DateTime.now().toIso8601String(),
         'status': 'active',
         if (notes != null && notes.isNotEmpty) 'notes': notes,
@@ -375,7 +427,7 @@ class VehiclesParkingService extends ChangeNotifier {
           .update({
             'status': 'ended',
             'allocated_until': DateTime.now().toIso8601String(),
-            if (notes != null) 'notes': notes,
+            'notes': ?notes,
           })
           .eq('id', allocationId)
           .select('slot_id')
@@ -402,8 +454,14 @@ class VehiclesParkingService extends ChangeNotifier {
     String? flatId,
     AllocationStatus? status,
   }) async {
-    if (_safeClient == null) {
+    if (_isOffline) {
       _allocations = _mockAllocations();
+      notifyListeners();
+      return _allocations;
+    }
+    if (societyId.isEmpty) {
+      _allocations = [];
+      _setError('allocations', 'This account is not linked to a society yet.');
       notifyListeners();
       return _allocations;
     }
@@ -430,14 +488,13 @@ class VehiclesParkingService extends ChangeNotifier {
       final res = await query.order('allocated_from', ascending: false);
       final list = (res as List).cast<Map<String, dynamic>>();
       _allocations = list.map(ParkingAllocationItem.fromMap).toList();
+      _clearError('allocations');
       notifyListeners();
       return _allocations;
     } catch (e) {
-      debugPrint('VehiclesParkingService.fetchAllocations error: $e');
-      if (_allocations.isEmpty) {
-        _allocations = _mockAllocations();
-        notifyListeners();
-      }
+      _allocations = [];
+      _setError('allocations', e);
+      notifyListeners();
       return _allocations;
     }
   }
@@ -451,8 +508,14 @@ class VehiclesParkingService extends ChangeNotifier {
     String? searchQuery,
     bool? unallocatedOnly,
   }) async {
-    if (_safeClient == null) {
+    if (_isOffline) {
       _societyVehicles = _mockVehicles();
+      notifyListeners();
+      return _societyVehicles;
+    }
+    if (societyId.isEmpty) {
+      _societyVehicles = [];
+      _setError('vehicles', 'This account is not linked to a society yet.');
       notifyListeners();
       return _societyVehicles;
     }
@@ -493,21 +556,24 @@ class VehiclesParkingService extends ChangeNotifier {
       }
 
       _societyVehicles = items;
+      _clearError('vehicles');
       notifyListeners();
       return _societyVehicles;
     } catch (e) {
-      debugPrint('VehiclesParkingService.fetchSocietyVehicles error: $e');
-      if (_societyVehicles.isEmpty) {
-        _societyVehicles = _mockVehicles();
-        notifyListeners();
-      }
+      _societyVehicles = [];
+      _setError('vehicles', e);
+      notifyListeners();
       return _societyVehicles;
     }
   }
 
   Future<List<VehicleItem>> fetchMyFlatVehicles(String flatId) async {
-    if (_safeClient == null) {
+    if (_isOffline) {
       return _mockVehicles().where((v) => v.flatId == flatId).toList();
+    }
+    if (flatId.isEmpty) {
+      _setError('myVehicles', 'No flat is linked to this account yet.');
+      return [];
     }
 
     try {
@@ -526,10 +592,39 @@ class VehiclesParkingService extends ChangeNotifier {
           .order('created_at', ascending: false);
 
       final list = (res as List).cast<Map<String, dynamic>>();
+      _clearError('myVehicles');
       return list.map(VehicleItem.fromMap).toList();
     } catch (e) {
-      debugPrint('VehiclesParkingService.fetchMyFlatVehicles error: $e');
+      _setError('myVehicles', e);
       return [];
+    }
+  }
+
+  Future<String?> uploadRcPhoto({
+    required Uint8List bytes,
+    required String fileExtension,
+  }) async {
+    if (_safeClient == null) return null;
+    try {
+      final user = _client.auth.currentUser;
+      final userId = user?.id ?? 'anon';
+      final fileName = '${DateTime.now().millisecondsSinceEpoch}.$fileExtension';
+      final filePath = '$userId/$fileName';
+
+      await _client.storage.from('vehicle-rc-docs').uploadBinary(
+        filePath,
+        bytes,
+        fileOptions: FileOptions(
+          contentType: 'image/$fileExtension',
+          upsert: true,
+        ),
+      );
+
+      final publicUrl = _client.storage.from('vehicle-rc-docs').getPublicUrl(filePath);
+      return publicUrl;
+    } catch (e) {
+      debugPrint('VehiclesParkingService.uploadRcPhoto error: $e');
+      return null;
     }
   }
 
@@ -567,12 +662,12 @@ class VehiclesParkingService extends ChangeNotifier {
       final res = await _client.from('vehicles').insert({
         'society_id': societyId,
         'flat_id': flatId,
-        if (residentId != null) 'resident_id': residentId,
+        'resident_id': ?residentId,
         'vehicle_number': cleanPlate,
         'make_model': makeModel.trim(),
         'type': type.toDbValue(),
         if (color != null && color.trim().isNotEmpty) 'color': color.trim(),
-        if (rcPhotoUrl != null) 'rc_photo_url': rcPhotoUrl,
+        'rc_photo_url': ?rcPhotoUrl,
         'status': 'active',
       }).select().single();
 
@@ -640,6 +735,16 @@ class VehiclesParkingService extends ChangeNotifier {
           .from('vehicles')
           .update({'status': 'inactive', 'updated_at': DateTime.now().toIso8601String()})
           .eq('id', vehicleId);
+
+      // If this vehicle was tied to an active slot allocation, unlink it so allocation stays at flat-level
+      try {
+        await _client
+            .from('parking_allocations')
+            .update({'vehicle_id': null, 'updated_at': DateTime.now().toIso8601String()})
+            .eq('vehicle_id', vehicleId)
+            .eq('status', 'active');
+      } catch (_) {}
+
       await fetchSocietyVehicles(societyId: societyId);
     } catch (e) {
       debugPrint('VehiclesParkingService.deactivateVehicle error: $e');
@@ -655,13 +760,22 @@ class VehiclesParkingService extends ChangeNotifier {
     required String societyId,
     required String plateNumber,
   }) async {
-    final clean = plateNumber.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '').toUpperCase();
-    if (_safeClient == null) {
-      final match = _societyVehicles.firstWhere(
-        (v) => v.vehicleNumber.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '').toUpperCase() == clean,
-        orElse: () => _mockVehicles().first,
-      );
+    final clean = normalizePlate(plateNumber);
 
+    // A gate verdict is a security decision. Only ever report "registered"
+    // off a genuine match — never off the nearest sample row, and never
+    // guess when the lookup itself failed.
+    PlateLookupResult unregistered() => PlateLookupResult(
+          found: false,
+          matchStatus: MatchStatus.unregistered,
+          normalizedQuery: clean,
+        );
+
+    if (_isOffline) {
+      final matches = _mockVehicles()
+          .where((v) => normalizePlate(v.vehicleNumber) == clean);
+      if (matches.isEmpty) return unregistered();
+      final match = matches.first;
       return PlateLookupResult(
         found: true,
         matchStatus: MatchStatus.registered,
@@ -681,28 +795,26 @@ class VehiclesParkingService extends ChangeNotifier {
       );
     }
 
-    try {
-      final rpcRes = await _client.rpc('lookup_vehicle_by_plate', params: {
-        'p_society_id': societyId,
-        'p_plate_number': clean,
-      });
-
-      if (rpcRes is Map) {
-        return PlateLookupResult.fromMap(Map<String, dynamic>.from(rpcRes), clean);
-      }
-      return PlateLookupResult(
-        found: false,
-        matchStatus: MatchStatus.unregistered,
-        normalizedQuery: clean,
-      );
-    } catch (e) {
-      debugPrint('VehiclesParkingService.lookupPlate error: $e');
-      return PlateLookupResult(
-        found: false,
-        matchStatus: MatchStatus.unregistered,
-        normalizedQuery: clean,
-      );
+    if (societyId.isEmpty) {
+      throw Exception('This account is not linked to a society yet.');
     }
+
+    // Deliberately not caught: a failed lookup must reach the guard as an
+    // error, not be rendered as "not registered".
+    final rpcRes = await _client.rpc('lookup_vehicle_by_plate', params: {
+      'p_society_id': societyId,
+      'p_plate_number': clean,
+    });
+
+    if (rpcRes is Map) {
+      // Since migration 17 the lookup refuses callers who are not a guard
+      // or admin of this society. A refusal is not "not registered".
+      if (rpcRes['success'] == false) {
+        throw Exception(rpcRes['error']?.toString() ?? 'Lookup refused');
+      }
+      return PlateLookupResult.fromMap(Map<String, dynamic>.from(rpcRes), clean);
+    }
+    return unregistered();
   }
 
   Future<VehicleEntryLogItem> logGateEntry({
@@ -712,8 +824,8 @@ class VehiclesParkingService extends ChangeNotifier {
     required MatchStatus matchStatus,
     String? notes,
   }) async {
-    final clean = plateNumber.replaceAll(RegExp(r'\s+'), '').toUpperCase();
-    if (_safeClient == null) {
+    final clean = normalizePlate(plateNumber);
+    if (_isOffline) {
       final newLog = VehicleEntryLogItem(
         id: 'log-${DateTime.now().millisecondsSinceEpoch}',
         societyId: societyId,
@@ -728,13 +840,51 @@ class VehiclesParkingService extends ChangeNotifier {
       return newLog;
     }
 
+    if (societyId.isEmpty) {
+      throw Exception('This account is not linked to a society yet.');
+    }
+
     try {
+      // Prefer the RPC: it stamps logged_by = auth.uid(), so the gate
+      // register records which guard waved the vehicle through. A plain
+      // insert leaves that column null and loses the audit trail.
+      try {
+        final rpcRes = await _client.rpc('log_vehicle_entry', params: {
+          'p_society_id': societyId,
+          'p_plate_number': clean,
+          'p_vehicle_id': vehicleId,
+          'p_match_status': matchStatus.toDbValue(),
+          'p_notes': (notes != null && notes.isNotEmpty) ? notes : null,
+        });
+
+        if (rpcRes is Map && rpcRes['success'] == true) {
+          await fetchGateLogs(societyId: societyId);
+          final logId = rpcRes['log_id']?.toString();
+          final match = _recentLogs.where((l) => l.id == logId);
+          if (match.isNotEmpty) return match.first;
+          return VehicleEntryLogItem(
+            id: logId ?? '',
+            societyId: societyId,
+            vehicleId: vehicleId,
+            vehicleNumberEntered: clean,
+            matchStatus: matchStatus,
+            entryAt: DateTime.now(),
+            notes: notes,
+          );
+        }
+      } on PostgrestException catch (rpcErr) {
+        // Only fall through when the function is absent (older schema).
+        if (rpcErr.code != '42883') rethrow;
+        debugPrint('log_vehicle_entry RPC missing, inserting directly: $rpcErr');
+      }
+
       final res = await _client.from('vehicle_entry_logs').insert({
         'society_id': societyId,
-        if (vehicleId != null) 'vehicle_id': vehicleId,
+        'vehicle_id': ?vehicleId,
         'vehicle_number_entered': clean,
         'match_status': matchStatus.toDbValue(),
         'entry_at': DateTime.now().toIso8601String(),
+        'logged_by': _client.auth.currentUser?.id,
         if (notes != null && notes.isNotEmpty) 'notes': notes,
       }).select().single();
 
@@ -751,7 +901,7 @@ class VehiclesParkingService extends ChangeNotifier {
     required String logId,
     required String societyId,
   }) async {
-    if (_safeClient == null) {
+    if (_isOffline) {
       final idx = _recentLogs.indexWhere((l) => l.id == logId);
       if (idx != -1) {
         _recentLogs[idx] = VehicleEntryLogItem(
@@ -770,6 +920,25 @@ class VehiclesParkingService extends ChangeNotifier {
     }
 
     try {
+      try {
+        final rpcRes = await _client.rpc('log_vehicle_exit', params: {
+          'p_log_id': logId,
+          'p_society_id': societyId,
+        });
+        if (rpcRes is Map && rpcRes['success'] == true) {
+          await fetchGateLogs(societyId: societyId);
+          return;
+        }
+        if (rpcRes is Map && rpcRes['error'] != null) {
+          // A real refusal (permission, missing log) — surface it rather
+          // than retrying an update RLS will reject anyway.
+          throw Exception(rpcRes['error']);
+        }
+      } on PostgrestException catch (rpcErr) {
+        if (rpcErr.code != '42883') rethrow;
+        debugPrint('log_vehicle_exit RPC missing, updating directly: $rpcErr');
+      }
+
       await _client
           .from('vehicle_entry_logs')
           .update({'exit_at': DateTime.now().toIso8601String()})
@@ -781,18 +950,28 @@ class VehiclesParkingService extends ChangeNotifier {
     }
   }
 
+  /// Gate register. [todayOnly] keeps the guard's shift view honest — the
+  /// screen labels this list "Today at the gate", so it must not quietly
+  /// include last week's movements.
   Future<List<VehicleEntryLogItem>> fetchGateLogs({
     required String societyId,
-    int limit = 50,
+    int limit = 100,
+    bool todayOnly = true,
   }) async {
-    if (_safeClient == null) {
+    if (_isOffline) {
       _recentLogs = _mockLogs();
+      notifyListeners();
+      return _recentLogs;
+    }
+    if (societyId.isEmpty) {
+      _recentLogs = [];
+      _setError('gateLogs', 'This account is not linked to a society yet.');
       notifyListeners();
       return _recentLogs;
     }
 
     try {
-      final res = await _client
+      var query = _client
           .from('vehicle_entry_logs')
           .select('''
             *,
@@ -802,26 +981,192 @@ class VehiclesParkingService extends ChangeNotifier {
               residents(full_name)
             )
           ''')
-          .eq('society_id', societyId)
-          .order('entry_at', ascending: false)
-          .limit(limit);
+          .eq('society_id', societyId);
+
+      if (todayOnly) {
+        final now = DateTime.now();
+        final startOfDay = DateTime(now.year, now.month, now.day);
+        query = query.gte('entry_at', startOfDay.toIso8601String());
+      }
+
+      final res =
+          await query.order('entry_at', ascending: false).limit(limit);
 
       final list = (res as List).cast<Map<String, dynamic>>();
       _recentLogs = list.map(VehicleEntryLogItem.fromMap).toList();
+      _clearError('gateLogs');
       notifyListeners();
       return _recentLogs;
     } catch (e) {
-      debugPrint('VehiclesParkingService.fetchGateLogs error: $e');
-      if (_recentLogs.isEmpty) {
-        _recentLogs = _mockLogs();
-        notifyListeners();
-      }
+      _recentLogs = [];
+      _setError('gateLogs', e);
+      notifyListeners();
       return _recentLogs;
     }
   }
 
   // ─────────────────────────────────────────────────────────────
-  // 5. PARKING POLICY (Society Admin)
+  // 5. BAY REQUESTS (Resident raises, Society Admin reviews)
+  // ─────────────────────────────────────────────────────────────
+
+  static const _bayRequestSelect = '''
+    *,
+    flats(flat_number, blocks(name)),
+    residents(full_name, phone),
+    vehicles(vehicle_number, make_model, type)
+  ''';
+
+  /// Requests for the whole society (admin queue) or a single flat
+  /// (resident's own view).
+  Future<List<ParkingBayRequestItem>> fetchBayRequests({
+    required String societyId,
+    String? flatId,
+    BayRequestStatus? status,
+  }) async {
+    if (_isOffline || societyId.isEmpty) {
+      _bayRequests = [];
+      notifyListeners();
+      return _bayRequests;
+    }
+
+    try {
+      var query = _client
+          .from('parking_bay_requests')
+          .select(_bayRequestSelect)
+          .eq('society_id', societyId);
+
+      if (flatId != null && flatId.isNotEmpty) {
+        query = query.eq('flat_id', flatId);
+      }
+      if (status != null) {
+        query = query.eq('status', status.toDbValue());
+      }
+
+      final res = await query.order('created_at', ascending: false);
+      final list = (res as List).cast<Map<String, dynamic>>();
+      _bayRequests = list.map(ParkingBayRequestItem.fromMap).toList();
+      _clearError('bayRequests');
+      notifyListeners();
+      return _bayRequests;
+    } catch (e) {
+      _bayRequests = [];
+      // An older database without migration 12 simply has no requests yet;
+      // that is not worth showing the resident an error over.
+      if (e is PostgrestException && (e.code == '42P01' || e.code == 'PGRST205')) {
+        _clearError('bayRequests');
+      } else {
+        _setError('bayRequests', e);
+      }
+      notifyListeners();
+      return _bayRequests;
+    }
+  }
+
+  /// The one request a flat currently has awaiting review, if any.
+  Future<ParkingBayRequestItem?> fetchMyPendingBayRequest({
+    required String societyId,
+    required String flatId,
+  }) async {
+    if (_isOffline || societyId.isEmpty || flatId.isEmpty) return null;
+    try {
+      final res = await _client
+          .from('parking_bay_requests')
+          .select(_bayRequestSelect)
+          .eq('flat_id', flatId)
+          .order('created_at', ascending: false)
+          .limit(5);
+
+      final list = (res as List).cast<Map<String, dynamic>>();
+      final items = list.map(ParkingBayRequestItem.fromMap).toList();
+      // Show the pending one if there is one, otherwise the most recent
+      // decision so the resident learns it was declined.
+      final pending = items.where((r) => r.isPending);
+      if (pending.isNotEmpty) return pending.first;
+      final rejected = items.where((r) => r.status == BayRequestStatus.rejected);
+      if (rejected.isNotEmpty) return rejected.first;
+      return null;
+    } catch (e) {
+      debugPrint('VehiclesParkingService.fetchMyPendingBayRequest error: $e');
+      return null;
+    }
+  }
+
+  Future<String> createBayRequest({
+    required String societyId,
+    required String flatId,
+    String? residentId,
+    String? vehicleId,
+    SlotCategory? preferredCategory,
+    String? notes,
+  }) async {
+    if (_isOffline) throw Exception('Not connected to the server.');
+    if (societyId.isEmpty || flatId.isEmpty) {
+      throw Exception('This account is not linked to a flat yet.');
+    }
+
+    final rpcRes = await _client.rpc('create_parking_bay_request', params: {
+      'p_society_id': societyId,
+      'p_flat_id': flatId,
+      'p_resident_id': residentId,
+      'p_vehicle_id': vehicleId,
+      'p_preferred_category': preferredCategory?.toDbValue(),
+      'p_notes': notes,
+    });
+
+    if (rpcRes is Map && rpcRes['success'] == true) {
+      await fetchBayRequests(societyId: societyId, flatId: flatId);
+      return rpcRes['request_id']?.toString() ?? '';
+    }
+    throw Exception(
+      (rpcRes is Map ? rpcRes['error'] : null) ?? 'Could not submit the request',
+    );
+  }
+
+  Future<void> reviewBayRequest({
+    required String requestId,
+    required String societyId,
+    required BayRequestStatus action, // approved | rejected
+    String? reviewNotes,
+  }) async {
+    if (_isOffline) throw Exception('Not connected to the server.');
+
+    final rpcRes = await _client.rpc('review_parking_bay_request', params: {
+      'p_request_id': requestId,
+      'p_action': action.toDbValue(),
+      'p_review_notes': reviewNotes,
+    });
+
+    if (rpcRes is Map && rpcRes['success'] == true) {
+      await fetchBayRequests(societyId: societyId);
+      return;
+    }
+    throw Exception(
+      (rpcRes is Map ? rpcRes['error'] : null) ?? 'Could not update the request',
+    );
+  }
+
+  Future<void> cancelBayRequest({
+    required String requestId,
+    required String societyId,
+    String? flatId,
+  }) async {
+    if (_isOffline) throw Exception('Not connected to the server.');
+
+    final rpcRes = await _client.rpc('cancel_parking_bay_request', params: {
+      'p_request_id': requestId,
+    });
+
+    if (rpcRes is Map && rpcRes['success'] == true) {
+      await fetchBayRequests(societyId: societyId, flatId: flatId);
+      return;
+    }
+    throw Exception(
+      (rpcRes is Map ? rpcRes['error'] : null) ?? 'Could not withdraw the request',
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // 6. PARKING POLICY (Society Admin)
   // ─────────────────────────────────────────────────────────────
 
   Future<ParkingPolicyConfig> fetchParkingPolicy(String societyId) async {
@@ -886,7 +1231,10 @@ class VehiclesParkingService extends ChangeNotifier {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // MOCK DATA GENERATORS (Offline & Testing fallback)
+  // SAMPLE DATA
+  //
+  // Used only when Supabase is not initialised at all (widget tests,
+  // previews). Never used to paper over a failed query — see [_isOffline].
   // ─────────────────────────────────────────────────────────────
 
   List<ParkingSlotItem> _mockSlots() {

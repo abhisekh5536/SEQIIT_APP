@@ -1,13 +1,19 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../models/visitor_models.dart';
+import '../../services/app_session.dart';
 import '../../services/notifications_service.dart';
 import '../../services/visitors_service.dart';
 import '../../theme/app_theme.dart';
+import 'gate_approval_modal.dart';
 import 'pre_approve_bottom_sheet.dart';
 import 'visitor_detail_screen.dart';
+import 'widgets/live_status_chip.dart';
 import 'widgets/visitor_card.dart';
+import 'widgets/visitor_entrance.dart';
 
 class ResidentVisitorsScreen extends StatefulWidget {
   final bool showBack;
@@ -26,30 +32,127 @@ class _ResidentVisitorsScreenState extends State<ResidentVisitorsScreen>
   String? _error;
   List<VisitorRecord> _visitors = [];
 
+  StreamSubscription<VisitorLiveEvent>? _liveSub;
+
+  /// Ids already surfaced as a full-screen prompt, so a later update to the
+  /// same visitor does not re-open the sheet on top of the resident.
+  final Set<String> _promptedIds = {};
+
+  bool _promptOpen = false;
+
+  /// Visitors that just arrived live; their cards slide in once.
+  final Set<String> _freshIds = {};
+  Timer? _freshClear;
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
     NotificationsService.instance.markModuleAsRead('visitor');
     _loadVisitors();
+    _startLive();
   }
 
   @override
   void dispose() {
+    _liveSub?.cancel();
+    _freshClear?.cancel();
+    VisitorsService.instance.removeListener(_onServiceChanged);
     _tabController.dispose();
     super.dispose();
   }
 
-  Future<void> _loadVisitors() async {
+  /// A visitor standing at the gate is time-critical for the resident too —
+  /// the request should arrive on its own, not on the next manual refresh.
+  void _startLive() {
+    final societyId = AppSession.instance.societyId;
+    if (societyId == null || societyId.isEmpty) return;
+
+    VisitorsService.instance.initRealtime(societyId);
+    VisitorsService.instance.addListener(_onServiceChanged);
+    _liveSub = VisitorsService.instance.onVisitorEvent.listen(_onLiveEvent);
+  }
+
+  void _onServiceChanged() {
+    if (!mounted) return;
+    if (!VisitorsService.instance.isLive) {
+      _loadVisitors(silent: true);
+    }
+    setState(() {});
+  }
+
+  /// Flats this account actually lives in. The realtime channel is scoped
+  /// to the society, so other flats' visitors arrive here too and must be
+  /// filtered out before anything is shown.
+  Set<String> get _myFlatIds =>
+      AppSession.instance.myResidences.map((r) => r.flatId).toSet();
+
+  void _onLiveEvent(VisitorLiveEvent event) {
+    if (!mounted) return;
+    final v = event.visitor;
+    if (!_myFlatIds.contains(v.flatId)) return;
+
     setState(() {
-      _loading = true;
-      _error = null;
+      final idx = _visitors.indexWhere((x) => x.id == v.id);
+      if (idx != -1) {
+        _visitors[idx] = v;
+      } else {
+        _markFresh([v.id]);
+        _visitors.insert(0, v);
+      }
     });
+
+    if (event.isNewGateRequest && !_promptedIds.contains(v.id)) {
+      _promptedIds.add(v.id);
+      _promptForApproval(v);
+    }
+  }
+
+  /// Marks [ids] to animate in on the next build, then forgets them so a
+  /// later rebuild (tab switch, scroll back) does not replay the entrance.
+  void _markFresh(Iterable<String> ids) {
+    _freshIds.addAll(ids);
+    _freshClear?.cancel();
+    _freshClear = Timer(const Duration(milliseconds: 1500), _freshIds.clear);
+  }
+
+  /// Puts the approve/deny sheet straight in front of the resident.
+  void _promptForApproval(VisitorRecord v) {
+    if (_promptOpen || !mounted) return;
+    _promptOpen = true;
+    HapticFeedback.heavyImpact();
+
+    GateApprovalModal.show(
+      context,
+      v,
+      onResponded: () => _loadVisitors(silent: true),
+    );
+
+    // showModalBottomSheet here is fire-and-forget; release the guard once
+    // the sheet has had a chance to close so a later visitor can prompt.
+    Future.delayed(const Duration(milliseconds: 400), () {
+      _promptOpen = false;
+    });
+  }
+
+  Future<void> _loadVisitors({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
 
     try {
       final list = await VisitorsService.instance.fetchResidentVisitors();
       if (mounted) {
         setState(() {
+          // A background refresh (e.g. polling while offline) can surface
+          // visitors too; animate those in like live arrivals.
+          if (silent) {
+            final known = _visitors.map((x) => x.id).toSet();
+            _markFresh(list.map((x) => x.id).where((id) => !known.contains(id)));
+          }
           _visitors = list;
           _loading = false;
         });
@@ -113,6 +216,11 @@ class _ResidentVisitorsScreenState extends State<ResidentVisitorsScreen>
                       ),
                     ),
                   ),
+                  LiveStatusChip(
+                    status: VisitorsService.instance.liveStatus,
+                    onRefresh: _loadVisitors,
+                  ),
+                  if (_pending.isNotEmpty) const SizedBox(width: 6),
                   if (_pending.isNotEmpty)
                     Container(
                       padding: const EdgeInsets.symmetric(
@@ -277,20 +385,24 @@ class _ResidentVisitorsScreenState extends State<ResidentVisitorsScreen>
       child: ListView.separated(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 100),
         itemCount: visitors.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 10),
+        separatorBuilder: (_, _) => const SizedBox(height: 10),
         itemBuilder: (context, index) {
           final visitor = visitors[index];
-          return VisitorCard(
-            visitor: visitor,
-            onTap: () {
-              HapticFeedback.lightImpact();
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => VisitorDetailScreen(visitorId: visitor.id),
-                ),
-              ).then((_) => _loadVisitors());
-            },
+          return VisitorEntrance(
+            key: ValueKey(visitor.id),
+            animate: _freshIds.contains(visitor.id),
+            child: VisitorCard(
+              visitor: visitor,
+              onTap: () {
+                HapticFeedback.lightImpact();
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => VisitorDetailScreen(visitorId: visitor.id),
+                  ),
+                ).then((_) => _loadVisitors());
+              },
+            ),
           );
         },
       ),

@@ -51,8 +51,24 @@ language sql stable security definer set search_path = public as $$
   );
 $$;
 
+create or replace function public.is_guard_or_admin(p_society_id uuid)
+returns boolean
+language sql stable security definer set search_path = public as $$
+  select public.is_society_admin(p_society_id)
+      or public.is_master_admin()
+      or (
+        (coalesce(auth.jwt() -> 'user_metadata' ->> 'role', auth.jwt() ->> 'role', '')) in ('guard', 'security')
+        and (
+          (auth.jwt() -> 'user_metadata' ->> 'society_id')::uuid = p_society_id
+          or exists (select 1 from public.residents r where r.user_id = auth.uid() and r.society_id = p_society_id)
+          or exists (select 1 from public.society_admin_users a where a.id = auth.uid() and a.society_id = p_society_id)
+        )
+      );
+$$;
+
 grant execute on function public.is_master_admin() to authenticated;
 grant execute on function public.is_society_admin(uuid) to authenticated;
+grant execute on function public.is_guard_or_admin(uuid) to authenticated;
 grant execute on function public.lives_in_flat(uuid) to authenticated;
 
 -- ------------------------------------------------------------
@@ -231,6 +247,41 @@ for each row execute function public.fn_sync_slot_status_on_allocation();
 -- 7) SERVER ACTION RPCs
 -- ------------------------------------------------------------
 
+-- 7.0 Drop stale overloads before (re)creating the RPCs.
+--
+-- Postgres identifies a function by name AND argument types, so
+-- `create or replace` with a changed signature adds a SECOND function
+-- rather than replacing the first. `log_vehicle_exit` gained a
+-- p_society_id parameter, which left the original one-argument version
+-- in place — still `security definer`, still granted to authenticated,
+-- and still carrying no authorization check. A bare
+-- `grant execute on function public.log_vehicle_exit` then fails with
+-- 42725 ("function name is not unique").
+--
+-- Dropping every overload of these names first guarantees that only the
+-- signatures defined below exist afterwards.
+do $$
+declare
+  r record;
+begin
+  for r in
+    select p.oid::regprocedure as sig
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname in (
+        'allocate_parking_slot',
+        'end_parking_allocation',
+        'bulk_create_parking_slots',
+        'lookup_vehicle_by_plate',
+        'log_vehicle_entry',
+        'log_vehicle_exit'
+      )
+  loop
+    execute format('drop function if exists %s', r.sig);
+  end loop;
+end $$;
+
 -- 7.1 Allocate a parking slot to a flat (and optionally a vehicle)
 create or replace function public.allocate_parking_slot(
   p_society_id uuid,
@@ -296,10 +347,16 @@ begin
     return jsonb_build_object('success', false, 'error', 'Society policy requires binding a specific vehicle to the slot');
   end if;
 
-  -- If vehicle is provided, verify it belongs to flat
+  -- If vehicle is provided, verify it belongs to flat and is active
   if p_vehicle_id is not null then
-    if not exists (select 1 from public.vehicles where id = p_vehicle_id and flat_id = p_flat_id and society_id = p_society_id) then
-      return jsonb_build_object('success', false, 'error', 'Vehicle does not belong to the selected flat');
+    if not exists (
+      select 1 from public.vehicles
+      where id = p_vehicle_id
+        and flat_id = p_flat_id
+        and society_id = p_society_id
+        and status = 'active'
+    ) then
+      return jsonb_build_object('success', false, 'error', 'Vehicle does not belong to the selected flat or is not active');
     end if;
   end if;
 
@@ -321,7 +378,7 @@ begin
 end;
 $$;
 
-grant execute on function public.allocate_parking_slot to authenticated;
+grant execute on function public.allocate_parking_slot(uuid, uuid, uuid, uuid, uuid, text) to authenticated;
 
 -- 7.2 End parking allocation (Revoke / Move-out)
 create or replace function public.end_parking_allocation(
@@ -355,7 +412,7 @@ begin
 end;
 $$;
 
-grant execute on function public.end_parking_allocation to authenticated;
+grant execute on function public.end_parking_allocation(uuid, text) to authenticated;
 
 -- 7.3 Bulk create parking slots
 create or replace function public.bulk_create_parking_slots(
@@ -403,7 +460,7 @@ begin
 end;
 $$;
 
-grant execute on function public.bulk_create_parking_slots to authenticated;
+grant execute on function public.bulk_create_parking_slots(uuid, text, int, int, uuid, text, text) to authenticated;
 
 -- 7.4 Lookup vehicle by plate number (Guard fast gate check)
 create or replace function public.lookup_vehicle_by_plate(
@@ -467,7 +524,7 @@ begin
 end;
 $$;
 
-grant execute on function public.lookup_vehicle_by_plate to authenticated;
+grant execute on function public.lookup_vehicle_by_plate(uuid, text) to authenticated;
 
 -- 7.5 Log vehicle gate entry
 create or replace function public.log_vehicle_entry(
@@ -496,17 +553,29 @@ begin
 end;
 $$;
 
-grant execute on function public.log_vehicle_entry to authenticated;
+grant execute on function public.log_vehicle_entry(uuid, text, uuid, text, text) to authenticated;
 
 -- 7.6 Log vehicle gate exit
 create or replace function public.log_vehicle_exit(
-  p_log_id uuid
+  p_log_id uuid,
+  p_society_id uuid default null
 )
 returns jsonb
 language plpgsql
 security definer
 as $$
+declare
+  v_log record;
 begin
+  select * into v_log from public.vehicle_entry_logs where id = p_log_id;
+  if not found then
+    return jsonb_build_object('success', false, 'error', 'Log entry not found');
+  end if;
+
+  if not (public.is_guard_or_admin(v_log.society_id)) then
+    return jsonb_build_object('success', false, 'error', 'Permission denied');
+  end if;
+
   update public.vehicle_entry_logs
   set exit_at = now()
   where id = p_log_id and exit_at is null;
@@ -515,7 +584,7 @@ begin
 end;
 $$;
 
-grant execute on function public.log_vehicle_exit to authenticated;
+grant execute on function public.log_vehicle_exit(uuid, uuid) to authenticated;
 
 -- ------------------------------------------------------------
 -- 8) ROW LEVEL SECURITY (RLS) POLICIES
@@ -534,6 +603,7 @@ for select to authenticated
 using (
   public.is_society_admin(society_id)
   or public.is_master_admin()
+  or public.is_guard_or_admin(society_id)
   or public.lives_in_flat(flat_id)
 );
 
@@ -578,6 +648,7 @@ for select to authenticated
 using (
   public.is_society_admin(society_id)
   or public.is_master_admin()
+  or public.is_guard_or_admin(society_id)
   or exists (select 1 from public.residents r where r.society_id = parking_slots.society_id and r.user_id = auth.uid())
 );
 
@@ -594,6 +665,7 @@ for select to authenticated
 using (
   public.is_society_admin(society_id)
   or public.is_master_admin()
+  or public.is_guard_or_admin(society_id)
   or public.lives_in_flat(flat_id)
 );
 
@@ -608,16 +680,24 @@ drop policy if exists "vehicle_entry_logs_select" on public.vehicle_entry_logs;
 create policy "vehicle_entry_logs_select" on public.vehicle_entry_logs
 for select to authenticated
 using (
-  public.is_society_admin(society_id)
-  or public.is_master_admin()
+  public.is_guard_or_admin(society_id)
 );
 
 drop policy if exists "vehicle_entry_logs_insert" on public.vehicle_entry_logs;
 create policy "vehicle_entry_logs_insert" on public.vehicle_entry_logs
 for insert to authenticated
 with check (
-  public.is_society_admin(society_id)
-  or public.is_master_admin()
+  public.is_guard_or_admin(society_id)
+);
+
+drop policy if exists "vehicle_entry_logs_update" on public.vehicle_entry_logs;
+create policy "vehicle_entry_logs_update" on public.vehicle_entry_logs
+for update to authenticated
+using (
+  public.is_guard_or_admin(society_id)
+)
+with check (
+  public.is_guard_or_admin(society_id)
 );
 
 -- 8.5 parking_society_configs
@@ -663,3 +743,31 @@ begin
     on conflict (society_id, vehicle_number) do nothing;
   end if;
 end $$;
+
+-- ------------------------------------------------------------
+-- 10) STORAGE BUCKET: vehicle-rc-docs
+-- ------------------------------------------------------------
+insert into storage.buckets (id, name, public)
+values ('vehicle-rc-docs', 'vehicle-rc-docs', true)
+on conflict (id) do nothing;
+
+drop policy if exists "Authenticated users can upload vehicle RC" on storage.objects;
+create policy "Authenticated users can upload vehicle RC"
+on storage.objects
+for insert
+to authenticated
+with check (bucket_id = 'vehicle-rc-docs');
+
+drop policy if exists "Authenticated users can read vehicle RC" on storage.objects;
+create policy "Authenticated users can read vehicle RC"
+on storage.objects
+for select
+to authenticated
+using (bucket_id = 'vehicle-rc-docs');
+
+drop policy if exists "Public can read vehicle RC" on storage.objects;
+create policy "Public can read vehicle RC"
+on storage.objects
+for select
+to public
+using (bucket_id = 'vehicle-rc-docs');

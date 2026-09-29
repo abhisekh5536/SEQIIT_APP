@@ -1,0 +1,847 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>:root { color-scheme: light dark; }</style>
+<title>Saqiit Build Map</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;600;700&family=Public+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* Palette lifted from the app's own lib/theme/app_palette.dart —
+     periwinkle primary on cool grey, cream-on-indigo in dark. */
+  :root {
+    --canvas:      #F3F4F8;
+    --card:        #FFFFFF;
+    --card-muted:  #F1F2F7;
+    --hairline:    #E6E8F0;
+    --ink:         #1E2240;
+    --ink-muted:   #5E6480;
+    --ink-faint:   #9AA1BC;
+    --primary:     #7C73C0;
+    --primary-dim: #E9E7F6;
+    --mint:        #ACFADF;
+    --mint-ink:    #0E3A2E;
+
+    --done:        #2F9E6E;
+    --done-wash:   #E4F4EC;
+    --build:       #C98A3D;
+    --build-wash:  #FBF1E1;
+    --plan:        #9AA1BC;
+    --plan-wash:   #EDEFF5;
+
+    --trunk:       #D5D8E6;
+    --shadow:      22 34 77;
+
+    --f-display: "Familjen Grotesk", "Segoe UI", system-ui, sans-serif;
+    --f-body:    "Public Sans", "Segoe UI", system-ui, sans-serif;
+    --f-mono:    "IBM Plex Mono", ui-monospace, "Cascadia Mono", monospace;
+
+    --gutter: 22px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --canvas:      #111844;
+      --card:        #1C2557;
+      --card-muted:  #242F6A;
+      --hairline:    #2B3574;
+      --ink:         #EAE0CF;
+      --ink-muted:   #AEB7DA;
+      --ink-faint:   #7E88B8;
+      --primary:     #94ADD7;
+      --primary-dim: #263168;
+      --mint:        #4B5694;
+      --mint-ink:    #EAE0CF;
+
+      --done:        #4FD0A0;
+      --done-wash:   #1B3A50;
+      --build:       #F0BD5E;
+      --build-wash:  #3A3256;
+      --plan:        #7E88B8;
+      --plan-wash:   #232D63;
+
+      --trunk:       #2B3574;
+      --shadow:      0 0 0;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --canvas:      #111844;
+    --card:        #1C2557;
+    --card-muted:  #242F6A;
+    --hairline:    #2B3574;
+    --ink:         #EAE0CF;
+    --ink-muted:   #AEB7DA;
+    --ink-faint:   #7E88B8;
+    --primary:     #94ADD7;
+    --primary-dim: #263168;
+    --mint:        #4B5694;
+    --mint-ink:    #EAE0CF;
+
+    --done:        #4FD0A0;
+    --done-wash:   #1B3A50;
+    --build:       #F0BD5E;
+    --build-wash:  #3A3256;
+    --plan:        #7E88B8;
+    --plan-wash:   #232D63;
+
+    --trunk:       #2B3574;
+    --shadow:      0 0 0;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--canvas);
+    color: var(--ink);
+    font-family: var(--f-body);
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding-inline: var(--gutter);
+    padding-block: 40px 72px;
+  }
+
+  /* ---------- masthead ---------- */
+
+  .masthead { display: flex; flex-wrap: wrap; gap: 20px 32px; align-items: flex-end; justify-content: space-between; }
+
+  .eyebrow {
+    font-family: var(--f-mono);
+    font-size: 11px;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin: 0 0 10px;
+  }
+
+  h1 {
+    font-family: var(--f-display);
+    font-weight: 700;
+    font-size: clamp(30px, 5.4vw, 44px);
+    letter-spacing: -0.02em;
+    line-height: 1.04;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .deck {
+    margin: 12px 0 0;
+    max-width: 52ch;
+    color: var(--ink-muted);
+    font-size: 15.5px;
+  }
+
+  .stamp {
+    font-family: var(--f-mono);
+    font-size: 11.5px;
+    color: var(--ink-faint);
+    text-align: right;
+    line-height: 1.8;
+    white-space: nowrap;
+  }
+  .stamp b { color: var(--ink-muted); font-weight: 500; }
+
+  /* ---------- metrics ---------- */
+
+  .metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+    gap: 1px;
+    background: var(--hairline);
+    border: 1px solid var(--hairline);
+    border-radius: 12px;
+    overflow: hidden;
+    margin-top: 32px;
+  }
+
+  .metric { background: var(--card); padding: 16px 18px; }
+  .metric .n {
+    font-family: var(--f-display);
+    font-weight: 600;
+    font-size: 26px;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+    display: block;
+    line-height: 1.1;
+  }
+  .metric .k {
+    font-size: 12px;
+    color: var(--ink-muted);
+    margin-top: 4px;
+    display: block;
+  }
+  .metric.is-done .n  { color: var(--done); }
+  .metric.is-build .n { color: var(--build); }
+  .metric.is-plan .n  { color: var(--plan); }
+
+  /* ---------- filter bar ---------- */
+
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-top: 28px;
+  }
+  .controls .lede {
+    font-family: var(--f-mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin-right: 6px;
+  }
+  .chip {
+    font-family: var(--f-body);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--ink-muted);
+    background: var(--card);
+    border: 1px solid var(--hairline);
+    border-radius: 999px;
+    padding: 6px 14px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    transition: background .15s, color .15s, border-color .15s;
+  }
+  .chip:hover { border-color: var(--ink-faint); }
+  .chip:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+  .chip .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .chip[aria-pressed="true"] { background: var(--ink); color: var(--canvas); border-color: var(--ink); }
+
+  /* ---------- the map ---------- */
+
+  .map {
+    position: relative;
+    margin-top: 44px;
+    padding-block: 4px 8px;
+  }
+
+  /* the trunk */
+  .map::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 34px;
+    left: calc(50% - 1px);
+    width: 2px;
+    background: var(--trunk);
+    border-radius: 2px;
+  }
+
+  .root {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    margin-bottom: 30px;
+  }
+  .root-node {
+    background: var(--ink);
+    color: var(--canvas);
+    border-radius: 16px;
+    padding: 16px 26px;
+    text-align: center;
+    box-shadow: 0 10px 26px -14px rgb(var(--shadow) / 0.55);
+    max-width: 360px;
+  }
+  .root-node .name {
+    font-family: var(--f-display);
+    font-weight: 700;
+    font-size: 21px;
+    letter-spacing: -0.01em;
+  }
+  .root-node .sub {
+    font-family: var(--f-mono);
+    font-size: 11px;
+    opacity: 0.72;
+    margin-top: 5px;
+    letter-spacing: 0.04em;
+  }
+
+  .branch {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 72px;
+    margin-bottom: 26px;
+    transition: opacity .2s;
+  }
+  .branch.dim { opacity: 0.26; }
+
+  .branch > .node { grid-column: 2; }
+  .branch.side-l > .node { grid-column: 1; }
+
+  /* elbow connector from trunk into the node */
+  .link {
+    position: absolute;
+    top: 0;
+    height: 42px;
+    width: 36px;
+    left: calc(50% - 1px);
+    border-left: 2px solid var(--trunk);
+    border-bottom: 2px solid var(--trunk);
+    border-bottom-left-radius: 18px;
+    pointer-events: none;
+  }
+  .branch.side-l .link {
+    left: auto;
+    right: calc(50% - 1px);
+    border-left: none;
+    border-right: 2px solid var(--trunk);
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 18px;
+  }
+  .link::after {
+    content: "";
+    position: absolute;
+    top: -5px;
+    left: -6px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--trunk);
+  }
+  .branch.side-l .link::after { left: auto; right: -6px; }
+
+  /* ---------- nodes ---------- */
+
+  .node {
+    background: var(--card);
+    border: 1px solid var(--hairline);
+    border-radius: 14px;
+    padding: 16px 18px 15px;
+    box-shadow: 0 6px 18px -14px rgb(var(--shadow) / 0.5);
+    position: relative;
+    overflow: hidden;
+  }
+  .node::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 4px;
+    background: var(--rail, var(--plan));
+  }
+  .node[data-status="done"]  { --rail: var(--done); }
+  .node[data-status="build"] {
+    --rail: var(--build);
+    border-color: var(--build);
+    background: var(--build-wash);
+    box-shadow: 0 14px 30px -18px rgb(var(--shadow) / 0.7);
+  }
+  .node[data-status="plan"] {
+    --rail: var(--plan);
+    border-style: dashed;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .node-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .node-head h2 {
+    font-family: var(--f-display);
+    font-weight: 600;
+    font-size: 17px;
+    letter-spacing: -0.01em;
+    margin: 0;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .pill {
+    font-family: var(--f-mono);
+    font-size: 10px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 5px;
+    white-space: nowrap;
+    flex: 0 0 auto;
+  }
+  .pill.done  { background: var(--done-wash);  color: var(--done); }
+  .pill.build { background: var(--card);       color: var(--build); border: 1px solid var(--build); }
+  .pill.plan  { background: var(--plan-wash);  color: var(--plan); }
+
+  .meter {
+    height: 3px;
+    border-radius: 3px;
+    background: var(--hairline);
+    margin: 12px 0 13px;
+    overflow: hidden;
+  }
+  .meter i { display: block; height: 100%; border-radius: 3px; background: var(--rail); }
+
+  .leaves { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; }
+  .leaves li {
+    display: grid;
+    grid-template-columns: 13px 1fr;
+    gap: 9px;
+    align-items: start;
+    font-size: 13.5px;
+    line-height: 1.42;
+    color: var(--ink-muted);
+  }
+  .leaves li::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    margin-top: 6px;
+    border-radius: 2px;
+    background: var(--rail);
+  }
+  .leaves li.open::before { background: transparent; border: 1.5px solid var(--build); border-radius: 50%; }
+  .leaves li.ghost::before { background: transparent; border: 1.5px solid var(--plan); border-radius: 50%; }
+  .leaves b { color: var(--ink); font-weight: 500; }
+  .leaves code {
+    font-family: var(--f-mono);
+    font-size: 11.5px;
+    color: var(--ink-faint);
+    background: var(--card-muted);
+    padding: 1px 5px;
+    border-radius: 4px;
+    white-space: nowrap;
+  }
+  .node[data-status="plan"] .leaves code { background: var(--plan-wash); }
+
+  .node-foot {
+    margin-top: 13px;
+    padding-top: 11px;
+    border-top: 1px solid var(--hairline);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+  }
+  .sql {
+    font-family: var(--f-mono);
+    font-size: 10.5px;
+    color: var(--primary);
+    background: var(--primary-dim);
+    border-radius: 4px;
+    padding: 2px 7px;
+    letter-spacing: 0.02em;
+  }
+  .foot-label {
+    font-family: var(--f-mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin-right: 2px;
+  }
+
+  /* ---------- lower sections ---------- */
+
+  .rule {
+    border: 0;
+    border-top: 1px solid var(--hairline);
+    margin: 56px 0 0;
+  }
+
+  .sec-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin: 36px 0 18px;
+  }
+  .sec-head h3 {
+    font-family: var(--f-display);
+    font-weight: 600;
+    font-size: 22px;
+    letter-spacing: -0.015em;
+    margin: 0;
+  }
+  .sec-head .note { font-size: 13px; color: var(--ink-muted); }
+
+  .queue { display: grid; gap: 1px; background: var(--hairline); border: 1px solid var(--hairline); border-radius: 12px; overflow: hidden; }
+  .q-row {
+    background: var(--card);
+    display: grid;
+    grid-template-columns: 34px 1.1fr 1fr auto;
+    gap: 14px;
+    align-items: center;
+    padding: 13px 16px;
+  }
+  .q-row .ord {
+    font-family: var(--f-mono);
+    font-size: 12px;
+    color: var(--ink-faint);
+    font-variant-numeric: tabular-nums;
+  }
+  .q-row .what { font-family: var(--f-display); font-weight: 600; font-size: 15px; letter-spacing: -0.005em; }
+  .q-row .why { font-size: 13px; color: var(--ink-muted); }
+  .q-row .state {
+    font-family: var(--f-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    white-space: nowrap;
+  }
+
+  .flag {
+    background: var(--card);
+    border: 1px solid var(--hairline);
+    border-left: 4px solid var(--build);
+    border-radius: 0 12px 12px 0;
+    padding: 18px 20px;
+    margin-top: 22px;
+  }
+  .flag h4 {
+    font-family: var(--f-display);
+    font-weight: 600;
+    font-size: 15.5px;
+    margin: 0 0 8px;
+  }
+  .flag p { margin: 0 0 10px; color: var(--ink-muted); font-size: 14px; max-width: 72ch; }
+  .flag p:last-child { margin-bottom: 0; }
+  .flag ul { margin: 0; padding-left: 18px; color: var(--ink-muted); font-size: 14px; }
+  .flag li { margin-bottom: 5px; }
+  .flag li:last-child { margin-bottom: 0; }
+  .flag strong { color: var(--ink); font-weight: 600; }
+
+  footer {
+    margin-top: 48px;
+    padding-top: 18px;
+    border-top: 1px solid var(--hairline);
+    font-family: var(--f-mono);
+    font-size: 11px;
+    color: var(--ink-faint);
+    line-height: 1.8;
+  }
+
+  @media (max-width: 880px) {
+    :root { --gutter: 16px; }
+
+    .stamp { text-align: left; }
+
+    .map::before { left: 15px; }
+
+    .root { justify-content: flex-start; }
+    .root-node { margin-left: 0; }
+
+    .branch { grid-template-columns: 1fr; column-gap: 0; padding-left: 56px; }
+    .branch > .node, .branch.side-l > .node { grid-column: 1; }
+
+    .link,
+    .branch.side-l .link {
+      left: 14px;
+      right: auto;
+      width: 34px;
+      border-left: 2px solid var(--trunk);
+      border-right: none;
+      border-bottom: 2px solid var(--trunk);
+      border-bottom-left-radius: 18px;
+      border-bottom-right-radius: 0;
+    }
+    .link::after, .branch.side-l .link::after { left: -6px; right: auto; }
+
+    .q-row { grid-template-columns: 26px 1fr; row-gap: 4px; }
+    .q-row .why { grid-column: 2; }
+    .q-row .state { grid-column: 2; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+</style>
+
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <div>
+      <p class="eyebrow">Flutter · Supabase · 3 panels</p>
+      <h1>Saqiit Build Map</h1>
+      <p class="deck">Every module in the society platform, plotted against what is actually in the repo — screens, services, RLS migrations and passing tests. Six shipped, one in build, six not started.</p>
+    </div>
+    <div class="stamp">
+      branch <b>vechicle_parking</b><br>
+      base <b>master</b> · 22705a2<br>
+      read <b>22 Sep 2026</b>
+    </div>
+  </header>
+
+  <section class="metrics" aria-label="Build totals">
+    <div class="metric is-done"><span class="n">6</span><span class="k">modules shipped</span></div>
+    <div class="metric is-build"><span class="n">1</span><span class="k">in build</span></div>
+    <div class="metric is-plan"><span class="n">6</span><span class="k">not started</span></div>
+    <div class="metric"><span class="n">14</span><span class="k">SQL migrations</span></div>
+    <div class="metric"><span class="n">57</span><span class="k">tests passing</span></div>
+    <div class="metric"><span class="n">0</span><span class="k">analyzer errors</span></div>
+  </section>
+
+  <div class="controls">
+    <span class="lede">Show</span>
+    <button class="chip" type="button" data-filter="all" aria-pressed="true">Everything</button>
+    <button class="chip" type="button" data-filter="done" aria-pressed="false"><span class="dot" style="background:var(--done)"></span>Shipped</button>
+    <button class="chip" type="button" data-filter="build" aria-pressed="false"><span class="dot" style="background:var(--build)"></span>In build</button>
+    <button class="chip" type="button" data-filter="plan" aria-pressed="false"><span class="dot" style="background:var(--plan)"></span>Not started</button>
+  </div>
+
+  <main class="map">
+
+    <div class="root">
+      <div class="root-node">
+        <div class="name">Saqiit</div>
+        <div class="sub">Society Admin · Guard · Resident</div>
+      </div>
+    </div>
+
+    <!-- 1 -->
+    <div class="branch side-l" data-status="done">
+      <span class="link"></span>
+      <article class="node" data-status="done">
+        <div class="node-head"><h2>Platform Foundation</h2><span class="pill done">Shipped</span></div>
+        <div class="meter"><i style="width:100%"></i></div>
+        <ul class="leaves">
+          <li><b>Email auth + OTP</b> <code>auth_screen.dart</code></li>
+          <li><b>Role session</b> — admin row, guard JWT claim, resident fallback <code>app_session.dart</code></li>
+          <li><b>Light + dark theme</b> with persisted controller</li>
+          <li><b>Shell &amp; role-aware home</b> — tiles differ per panel</li>
+          <li><b>App-level realtime</b> — one socket feeds bell, badges, gate</li>
+        </ul>
+        <div class="node-foot"><span class="foot-label">DB</span><span class="sql">01</span><span class="sql">02</span></div>
+      </article>
+    </div>
+
+    <!-- 2 -->
+    <div class="branch" data-status="done">
+      <span class="link"></span>
+      <article class="node" data-status="done">
+        <div class="node-head"><h2>Residents &amp; Flats</h2><span class="pill done">Shipped</span></div>
+        <div class="meter"><i style="width:100%"></i></div>
+        <ul class="leaves">
+          <li><b>Resident directory</b> — searchable, tower-grouped <code>2,221 lines</code></li>
+          <li><b>Flats &amp; blocks register</b> with occupancy sync</li>
+          <li><b>My Flat</b> — family and tenant members</li>
+          <li><b>Profile self-service</b> — primary residents manage their own household</li>
+          <li><b>Join society → admin approval</b> queue for unlisted users</li>
+        </ul>
+        <div class="node-foot"><span class="foot-label">DB</span><span class="sql">01</span><span class="sql">03</span><span class="sql">04</span><span class="sql">05</span></div>
+      </article>
+    </div>
+
+    <!-- 3 -->
+    <div class="branch side-l" data-status="done">
+      <span class="link"></span>
+      <article class="node" data-status="done">
+        <div class="node-head"><h2>Complaints &amp; Helpdesk</h2><span class="pill done">Shipped</span></div>
+        <div class="meter"><i style="width:100%"></i></div>
+        <ul class="leaves">
+          <li><b>Raise a complaint</b> with photo attachments to a storage bucket</li>
+          <li><b>Resident tracking</b> — list and detail with live status</li>
+          <li><b>Admin helpdesk</b> — filter, search, assign, resolve</li>
+          <li><b>Timeline audit trail</b> — every transition recorded</li>
+          <li>Status moves enforced in <b>atomic RPCs</b>, not just the UI</li>
+        </ul>
+        <div class="node-foot"><span class="foot-label">DB</span><span class="sql">06</span></div>
+      </article>
+    </div>
+
+    <!-- 4 -->
+    <div class="branch" data-status="done">
+      <span class="link"></span>
+      <article class="node" data-status="done">
+        <div class="node-head"><h2>Notices &amp; Notifications</h2><span class="pill done">Shipped</span></div>
+        <div class="meter"><i style="width:100%"></i></div>
+        <ul class="leaves">
+          <li><b>Notice board</b> — list, detail, attachments</li>
+          <li><b>Create &amp; edit</b> with scheduling and block-level targeting</li>
+          <li><b>Read tracking</b> plus mandatory acknowledgement</li>
+          <li><b>Notification centre</b> and unread bell badge</li>
+          <li><b>DB triggers</b> fire alerts on approvals and complaint moves</li>
+        </ul>
+        <div class="node-foot"><span class="foot-label">DB</span><span class="sql">07</span><span class="sql">08</span></div>
+      </article>
+    </div>
+
+    <!-- 5 -->
+    <div class="branch side-l" data-status="done">
+      <span class="link"></span>
+      <article class="node" data-status="done">
+        <div class="node-head"><h2>Visitors &amp; Gate</h2><span class="pill done">Shipped</span></div>
+        <div class="meter"><i style="width:100%"></i></div>
+        <ul class="leaves">
+          <li><b>Flow A — gate-initiated</b>: guard logs an unannounced visitor</li>
+          <li><b>Flow B — pre-approval</b>: resident issues a code ahead of time</li>
+          <li><b>Live approve / deny</b> over Postgres Realtime, no polling</li>
+          <li><b>Admin dashboard</b> + visitor detail, timeline and history</li>
+          <li><b>Guard RLS</b> — read the society, create gate requests, nothing more</li>
+        </ul>
+        <div class="node-foot"><span class="foot-label">DB</span><span class="sql">09</span><span class="sql">13</span><span class="sql">14</span></div>
+      </article>
+    </div>
+
+    <!-- 6 -->
+    <div class="branch" data-status="done">
+      <span class="link"></span>
+      <article class="node" data-status="done">
+        <div class="node-head"><h2>Security &amp; SOS</h2><span class="pill done">Shipped</span></div>
+        <div class="meter"><i style="width:100%"></i></div>
+        <ul class="leaves">
+          <li><b>Resident SOS</b> trigger with a persistent active banner</li>
+          <li><b>Admin live alert</b> dialog on incoming emergencies</li>
+          <li><b>SOS status history</b> — full transition audit</li>
+          <li><b>Emergency contacts</b> — admin-managed plus seeded national numbers</li>
+          <li><b>Tap-to-call logging</b> for every attempt</li>
+        </ul>
+        <div class="node-foot"><span class="foot-label">DB</span><span class="sql">10</span></div>
+      </article>
+    </div>
+
+    <!-- 7 -->
+    <div class="branch side-l" data-status="build">
+      <span class="link"></span>
+      <article class="node" data-status="build">
+        <div class="node-head"><h2>Vehicles &amp; Parking</h2><span class="pill build">In build</span></div>
+        <div class="meter"><i style="width:95%"></i></div>
+        <ul class="leaves">
+          <li><b>Vehicle registry</b> — HSRP plate formatting, RC photo upload</li>
+          <li><b>Bay inventory</b> — bulk generate, maintenance and reserved states, delete</li>
+          <li><b>Allocation engine</b> — per-flat cap, vehicle binding, trigger-synced slot status</li>
+          <li><b>Resident view</b> — My Vehicles and My Bays</li>
+          <li><b>Bay request queue</b> — resident asks, admin reviews <code>NEW</code></li>
+          <li><b>Guard gate</b> — plate lookup, entry and exit logging</li>
+          <li class="open"><b>Merge to master</b> — branch still open</li>
+        </ul>
+        <div class="node-foot"><span class="foot-label">DB</span><span class="sql">11</span><span class="sql">12</span></div>
+      </article>
+    </div>
+
+    <!-- 8 -->
+    <div class="branch" data-status="plan">
+      <span class="link"></span>
+      <article class="node" data-status="plan">
+        <div class="node-head"><h2>Not started</h2><span class="pill plan">6 modules</span></div>
+        <div class="meter"><i style="width:0%"></i></div>
+        <ul class="leaves">
+          <li class="ghost"><b>Maintenance billing &amp; payments</b> — stub screen <code>/maintenance</code></li>
+          <li class="ghost"><b>Facility booking</b> — stub screen <code>/facilities</code></li>
+          <li class="ghost"><b>Staff management</b> — stub screen <code>/staff</code></li>
+          <li class="ghost"><b>Meetings &amp; AGM</b> — stub screen <code>/meetings</code></li>
+          <li class="ghost"><b>Recharge generator</b> — no route, no code</li>
+          <li class="ghost"><b>Delivery management</b> — no route, no code</li>
+        </ul>
+        <div class="node-foot"><span class="foot-label">DB</span><span class="sql">none yet</span></div>
+      </article>
+    </div>
+
+  </main>
+
+  <hr class="rule">
+
+  <section>
+    <div class="sec-head">
+      <h3>Closing out Vehicles &amp; Parking</h3>
+      <span class="note">The QA audit scored it 84%. Everything it flagged is now closed.</span>
+    </div>
+
+    <div class="flag">
+      <h4>All 13 audit findings verified fixed in the working tree</h4>
+      <ul>
+        <li><strong>Guard RLS</strong> — <code style="font-family:var(--f-mono);font-size:12px">is_guard_or_admin()</code> now gates reads on vehicles, slots, allocations and entry logs.</li>
+        <li><strong>Guard routing</strong> — the root screen checks <code style="font-family:var(--f-mono);font-size:12px">isGuard</code> before falling through to the resident view.</li>
+        <li><strong>RPC bypass</strong> — the direct-insert fallback now fires only on Postgres <code style="font-family:var(--f-mono);font-size:12px">42883</code> (function missing), so the per-flat cap can't be sidestepped.</li>
+        <li><strong>Exit logging</strong> — <code style="font-family:var(--f-mono);font-size:12px">log_vehicle_exit</code> checks society and caller before writing.</li>
+        <li><strong>UI gaps</strong> — RC photo upload, bay maintenance/reserved toggles, bay delete, cap indicator and the blockless-society flat query are all in. The orphaned <code style="font-family:var(--f-mono);font-size:12px">admin_vehicles_screen.dart</code> is deleted.</li>
+      </ul>
+      <p style="margin-top:12px">What is left is process, not code: commit the working tree, open the PR against <strong>master</strong>, and run the 14 migrations in order on a clean Supabase project to confirm 11 → 12 apply on top of 01–10.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h3>Build order for the six unbuilt modules</h3>
+      <span class="note">Ranked by what residents pay for and what the schema already supports.</span>
+    </div>
+
+    <div class="queue">
+      <div class="q-row">
+        <span class="ord">01</span>
+        <span class="what">Maintenance billing &amp; payments</span>
+        <span class="why">The revenue module, and the one the feature sheet already sells as live. Needs invoices, ledger, gateway.</span>
+        <span class="state">stub route</span>
+      </div>
+      <div class="q-row">
+        <span class="ord">02</span>
+        <span class="what">Staff management</span>
+        <span class="why">Domestic help and guards reuse the visitor gate flow and the residents table almost wholesale.</span>
+        <span class="state">stub route</span>
+      </div>
+      <div class="q-row">
+        <span class="ord">03</span>
+        <span class="what">Delivery management</span>
+        <span class="why">A thin variant of the gate flow — couriers instead of visitors. Cheapest module on the list.</span>
+        <span class="state">no code</span>
+      </div>
+      <div class="q-row">
+        <span class="ord">04</span>
+        <span class="what">Facility booking</span>
+        <span class="why">Clubhouse, gym, party hall. Needs a calendar and slot-conflict rules; no existing pattern to lean on.</span>
+        <span class="state">stub route</span>
+      </div>
+      <div class="q-row">
+        <span class="ord">05</span>
+        <span class="what">Meetings &amp; AGM</span>
+        <span class="why">Agenda, minutes and voting. Notices covers the announcement half already.</span>
+        <span class="state">stub route</span>
+      </div>
+      <div class="q-row">
+        <span class="ord">06</span>
+        <span class="what">Recharge generator</span>
+        <span class="why">Prepaid backup power per flat. Depends on billing being done first, plus hardware integration.</span>
+        <span class="state">no code</span>
+      </div>
+    </div>
+
+    <div class="flag">
+      <h4>The feature sheet and the repo disagree</h4>
+      <p><code style="font-family:var(--f-mono);font-size:12px">Saqiit_Features.pdf</code> marks <strong>Maintenance Billing</strong> and <strong>Recharge Generator</strong> as LIVE — neither exists in the codebase; <code style="font-family:var(--f-mono);font-size:12px">/maintenance</code> routes to a placeholder and "recharge" appears nowhere in <code style="font-family:var(--f-mono);font-size:12px">lib/</code>. It also marks <strong>Parking</strong> as COMING SOON, when that module is a merge away from done. Worth fixing before the sheet goes to another society.</p>
+    </div>
+  </section>
+
+  <footer>
+    Counted from the working tree on <b>vechicle_parking</b> · 58 screens and sheets · 7 services, 5,048 lines · 9 test files, 57 passing · flutter analyze: 0 errors, 32 info lints.
+  </footer>
+
+</div>
+
+<script>
+  (function () {
+    var chips = Array.prototype.slice.call(document.querySelectorAll('.chip'));
+    var branches = Array.prototype.slice.call(document.querySelectorAll('.branch'));
+    var KEY = 'saqiit-map-filter';
+
+    function apply(filter) {
+      branches.forEach(function (b) {
+        b.classList.toggle('dim', filter !== 'all' && b.dataset.status !== filter);
+      });
+      chips.forEach(function (c) {
+        c.setAttribute('aria-pressed', String(c.dataset.filter === filter));
+      });
+      try { localStorage.setItem(KEY, filter); } catch (e) {}
+    }
+
+    chips.forEach(function (c) {
+      c.addEventListener('click', function () { apply(c.dataset.filter); });
+    });
+
+    var saved = 'all';
+    try { saved = localStorage.getItem(KEY) || 'all'; } catch (e) {}
+    if (saved !== 'all') apply(saved);
+  })();
+</script>
+
+</body>
+</html>

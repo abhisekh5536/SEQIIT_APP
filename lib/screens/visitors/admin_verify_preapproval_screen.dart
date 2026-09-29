@@ -1,13 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../../models/visitor_models.dart';
+import '../../services/app_session.dart';
+import '../../services/guard_service.dart';
 import '../../services/visitors_service.dart';
 import '../../theme/app_theme.dart';
 
-/// Admin gate stand-in: verify a pre-approved visitor by code.
+/// Verify a pre-approved visitor by the code they show at the gate. Used by
+/// the guard panel and by admins working the gate.
 class AdminVerifyPreapprovalScreen extends StatefulWidget {
-  const AdminVerifyPreapprovalScreen({super.key});
+  /// A code already typed on the gate home screen; looked up immediately.
+  final String? initialCode;
+
+  const AdminVerifyPreapprovalScreen({super.key, this.initialCode});
 
   @override
   State<AdminVerifyPreapprovalScreen> createState() =>
@@ -21,6 +28,18 @@ class _AdminVerifyPreapprovalScreenState
   bool _actioning = false;
   String? _error;
   Map<String, dynamic>? _result;
+
+  bool get _isGuard => AppSession.instance.isGuard;
+
+  @override
+  void initState() {
+    super.initState();
+    final code = widget.initialCode?.trim() ?? '';
+    if (code.isNotEmpty) {
+      _codeCtrl.text = code.toUpperCase();
+      WidgetsBinding.instance.addPostFrameCallback((_) => _search());
+    }
+  }
 
   @override
   void dispose() {
@@ -56,13 +75,16 @@ class _AdminVerifyPreapprovalScreenState
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Verify Pre-Approval',
+                          _isGuard ? 'Verify pass' : 'Verify Pre-Approval',
                           style: textTheme.titleLarge?.copyWith(
                             fontWeight: FontWeight.w800,
                           ),
                         ),
                         Text(
-                          'Gate stand-in · Lookup by code',
+                          _isGuard
+                              ? (GuardService.instance.currentGate?.name ??
+                                  'Code shown by the visitor')
+                              : 'Gate stand-in · Lookup by code',
                           style: textTheme.bodySmall?.copyWith(
                             color: p.textTertiary,
                           ),
@@ -82,22 +104,34 @@ class _AdminVerifyPreapprovalScreenState
               child: Row(
                 children: [
                   Expanded(
+                    // Codes are 8 letters/digits since migration 15 (older
+                    // 6-digit passes still verify). This field only took 6
+                    // digits, so a current pass could not be typed at all.
                     child: TextField(
                       controller: _codeCtrl,
-                      keyboardType: TextInputType.number,
-                      maxLength: 6,
+                      autofocus: widget.initialCode == null,
+                      keyboardType: TextInputType.visiblePassword,
+                      textCapitalization: TextCapitalization.characters,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      maxLength: 8,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(RegExp('[0-9A-Za-z]')),
+                        TextInputFormatter.withFunction((_, v) =>
+                            v.copyWith(text: v.text.toUpperCase())),
+                      ],
                       textAlign: TextAlign.center,
                       style: textTheme.headlineSmall?.copyWith(
                         fontWeight: FontWeight.w800,
-                        letterSpacing: 6,
+                        letterSpacing: 4,
                         fontFamily: 'monospace',
                       ),
                       decoration: InputDecoration(
                         counterText: '',
-                        hintText: '000000',
+                        hintText: 'CODE',
                         hintStyle: TextStyle(
                           color: p.textTertiary.withValues(alpha: 0.4),
-                          letterSpacing: 6,
+                          letterSpacing: 4,
                         ),
                         filled: true,
                         fillColor: p.card,
@@ -218,7 +252,7 @@ class _AdminVerifyPreapprovalScreenState
           ),
           const SizedBox(height: 4),
           Text(
-            'Enter the 6-digit code shared by the resident',
+            'Type the code the visitor shows on their phone',
             style: textTheme.bodySmall?.copyWith(color: p.textTertiary),
           ),
         ],
@@ -548,7 +582,7 @@ class _AdminVerifyPreapprovalScreenState
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = e.toString();
+          _error = e.toString().replaceFirst('Exception: ', '');
           _searching = false;
         });
       }
@@ -558,7 +592,11 @@ class _AdminVerifyPreapprovalScreenState
   Future<void> _checkIn(String visitorId) async {
     setState(() => _actioning = true);
     try {
-      await VisitorsService.instance.checkInVisitor(visitorId);
+      await VisitorsService.instance.checkInVisitor(
+        visitorId,
+        entryGate: GuardService.instance.currentGate?.name,
+      );
+      HapticFeedback.mediumImpact();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -574,7 +612,7 @@ class _AdminVerifyPreapprovalScreenState
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error: $e'),
+            content: Text(e.toString().replaceFirst('Exception: ', '')),
             backgroundColor: Colors.redAccent,
           ),
         );
@@ -596,13 +634,18 @@ class _AdminVerifyPreapprovalScreenState
                 AppTheme.paletteFor(Theme.of(context).brightness).success,
           ),
         );
-        _search();
+        // Check-out releases the code (migration 15), so looking it up
+        // again would only report "not found". Clear instead.
+        setState(() {
+          _result = null;
+          _codeCtrl.clear();
+        });
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error: $e'),
+            content: Text(e.toString().replaceFirst('Exception: ', '')),
             backgroundColor: Colors.redAccent,
           ),
         );
