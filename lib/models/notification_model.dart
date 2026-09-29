@@ -74,6 +74,7 @@ class AppNotification {
   bool get isNotice => entityType == 'notice' || type == 'notice';
   bool get isVisitor => entityType == 'visitor' || type.startsWith('visitor');
   bool get isSos => entityType == 'sos_alert' || type.startsWith('sos_alert');
+  bool get isFacility => entityType == 'facility' || type.startsWith('facility');
 
   IconData get icon {
     switch (type) {
@@ -115,6 +116,8 @@ class AppNotification {
         return Icons.task_alt_rounded;
       case 'sos_alert_cancelled':
         return Icons.cancel_outlined;
+      case 'facility_status_changed':
+        return Icons.pool_rounded;
       default:
         return Icons.notifications_rounded;
     }
@@ -156,6 +159,8 @@ class AppNotification {
         return const Color(0xFF16A34A);
       case 'sos_alert_cancelled':
         return const Color(0xFF64748B);
+      case 'facility_status_changed':
+        return const Color(0xFF0891B2);
       default:
         return const Color(0xFF64748B);
     }

@@ -10,6 +10,7 @@ import 'screens/auth_screen.dart';
 import 'screens/complaints/complaints_root_screen.dart';
 import 'screens/complaints/raise_complaint_screen.dart';
 import 'screens/directory_screen.dart';
+import 'screens/facilities/facilities_root_screen.dart';
 import 'screens/flats_management_screen.dart';
 import 'screens/join_society_screen.dart';
 import 'screens/main_shell.dart';
@@ -157,7 +158,7 @@ class _SocietyAppState extends State<SocietyApp> {
             '/complaints': (context) => const ComplaintsRootScreen(),
             '/complaints/raise': (context) => const RaiseComplaintScreen(),
             '/staff': (context) => const _FeatureScreen('Staff'),
-            '/facilities': (context) => const _FeatureScreen('Facilities'),
+            '/facilities': (context) => const FacilitiesRootScreen(),
             '/meetings': (context) => const _FeatureScreen('Meetings'),
             '/notices': (context) => const NoticesScreen(),
             '/notices/create': (context) => const _AdminGate(

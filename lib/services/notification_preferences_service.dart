@@ -7,7 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 /// A group of alerts the user can switch push on or off for.
 ///
 /// [key] must match `notification_preferences.module` and
-/// `notification_module()` in migration 18; [channelId] must match
+/// `notification_module()` in migrations 18–19; [channelId] must match
 /// `channelFor()` in the push-notify Edge Function.
 enum PushModule {
   visitors(
@@ -58,6 +58,15 @@ enum PushModule {
     channelId: 'parking',
     channelName: 'Vehicles & Parking',
   ),
+  facilities(
+    key: 'facilities',
+    label: 'Facilities',
+    subtitle: 'When a facility closes or reopens (off by default)',
+    icon: Icons.pool_outlined,
+    channelId: 'facilities',
+    channelName: 'Facilities',
+    defaultEnabled: false,
+  ),
   general(
     key: 'general',
     label: 'General',
@@ -74,6 +83,7 @@ enum PushModule {
     required this.icon,
     required this.channelId,
     required this.channelName,
+    this.defaultEnabled = true,
   });
 
   final String key;
@@ -82,12 +92,16 @@ enum PushModule {
   final IconData icon;
   final String channelId;
   final String channelName;
+
+  /// Must match push_module_default() in migration 19. Facility status
+  /// changes are opt-in so a routine pool cleaning is not a phone alert.
+  final bool defaultEnabled;
 }
 
 /// Per-module push on/off, stored server-side so the push-notify function
 /// skips opted-out users before anything is sent.
 ///
-/// Missing rows mean enabled. A local copy keeps the switches correct
+/// Missing rows mean the module's [PushModule.defaultEnabled]. A local copy keeps the switches correct
 /// offline and before the first fetch completes.
 class NotificationPreferencesService extends ChangeNotifier {
   NotificationPreferencesService._();
@@ -97,10 +111,11 @@ class NotificationPreferencesService extends ChangeNotifier {
   static const _cacheKey = 'seqiit_push_module_prefs';
 
   final Map<PushModule, bool> _enabled = {
-    for (final m in PushModule.values) m: true,
+    for (final m in PushModule.values) m: m.defaultEnabled,
   };
 
-  bool isEnabled(PushModule module) => _enabled[module] ?? true;
+  bool isEnabled(PushModule module) =>
+      _enabled[module] ?? module.defaultEnabled;
 
   SupabaseClient? get _client {
     try {
@@ -123,7 +138,7 @@ class NotificationPreferencesService extends ChangeNotifier {
           .select('module, push_enabled')
           .eq('user_id', userId);
       for (final m in PushModule.values) {
-        _enabled[m] = true;
+        _enabled[m] = m.defaultEnabled;
       }
       for (final row in (rows as List)) {
         final module = _byKey(row['module']?.toString());

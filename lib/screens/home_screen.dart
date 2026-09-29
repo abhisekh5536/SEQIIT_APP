@@ -166,7 +166,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SocietyService(
             title: 'Facilities',
-            subtitle: 'Hall, gym & bookings',
+            subtitle: 'Hall, gym & amenities',
             icon: Icons.event_seat_outlined,
             route: '/facilities',
             colorIndex: 4,
