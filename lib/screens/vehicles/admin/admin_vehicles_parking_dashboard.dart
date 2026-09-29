@@ -12,6 +12,7 @@ import 'add_slot_sheet.dart';
 import 'allocate_slot_dialog.dart';
 import 'bulk_add_slots_dialog.dart';
 import 'parking_policy_dialog.dart';
+import '../../../widgets/text_input_dialog.dart';
 
 class AdminVehiclesParkingDashboard extends StatefulWidget {
   final bool showBack;
@@ -507,56 +508,18 @@ class _AdminVehiclesParkingDashboardState
   }
 
   Future<void> _declineRequest(ParkingBayRequestItem req) async {
-    final reasonCtrl = TextEditingController();
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Decline this request?'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('${req.residentName} · ${req.flatDisplay}'),
-            const SizedBox(height: 14),
-            TextField(
-              controller: reasonCtrl,
-              autofocus: true,
-              maxLines: 2,
-              decoration: const InputDecoration(
-                labelText: 'Reason (shown to the resident)',
-                hintText: 'e.g. No covered bays free; added to waitlist',
-                border: OutlineInputBorder(),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-                backgroundColor: Theme.of(ctx).colorScheme.error),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Decline'),
-          ),
-        ],
-      ),
+    final reason = await showTextInputDialog(
+      context,
+      title: 'Decline this request?',
+      message: '${req.residentName} · ${req.flatDisplay}',
+      label: 'Reason (shown to the resident)',
+      hint: 'e.g. No covered bays free; added to waitlist',
+      maxLines: 2,
+      confirmLabel: 'Decline',
+      confirmColor: Theme.of(context).colorScheme.error,
+      requiredMessage: 'Please give the resident a reason',
     );
-
-    final reason = reasonCtrl.text.trim();
-    reasonCtrl.dispose();
-    if (confirmed != true) return;
-
-    if (reason.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please give the resident a reason')),
-        );
-      }
-      return;
-    }
+    if (reason == null) return;
 
     try {
       await VehiclesParkingService.instance.reviewBayRequest(

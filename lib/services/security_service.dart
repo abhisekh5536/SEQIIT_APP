@@ -32,6 +32,15 @@ class SecurityService extends ChangeNotifier {
 
   bool _initializedRealtime = false;
 
+  /// The SOS RPCs answer a refusal with `{success: false, error}` rather
+  /// than raising, so an unchecked call reported "acknowledged" to the
+  /// responder while nothing had changed.
+  static void _throwIfRefused(dynamic res, String fallbackError) {
+    if (res is Map && res['success'] == false) {
+      throw Exception(res['error']?.toString() ?? fallbackError);
+    }
+  }
+
   // ─────────────────────────────────────────────────────────────
   // 1. Categories
   // ─────────────────────────────────────────────────────────────
@@ -442,10 +451,11 @@ class SecurityService extends ChangeNotifier {
   Future<void> acknowledgeSosAlert(String alertId, {String? note}) async {
     if (_safeClient == null) return;
     try {
-      await _client.rpc('acknowledge_sos_alert', params: {
+      final res = await _client.rpc('acknowledge_sos_alert', params: {
         'p_alert_id': alertId,
         'p_note': note?.trim(),
       });
+      _throwIfRefused(res, 'Could not acknowledge the alert');
 
       final societyId = AppSession.instance.societyId;
       if (societyId != null) {
@@ -460,10 +470,11 @@ class SecurityService extends ChangeNotifier {
   Future<void> resolveSosAlert(String alertId, {String? note}) async {
     if (_safeClient == null) return;
     try {
-      await _client.rpc('resolve_sos_alert', params: {
+      final res = await _client.rpc('resolve_sos_alert', params: {
         'p_alert_id': alertId,
         'p_note': note?.trim(),
       });
+      _throwIfRefused(res, 'Could not resolve the alert');
 
       final societyId = AppSession.instance.societyId;
       if (societyId != null) {
@@ -478,10 +489,11 @@ class SecurityService extends ChangeNotifier {
   Future<void> cancelSosAlert(String alertId, {String? note}) async {
     if (_safeClient == null) return;
     try {
-      await _client.rpc('cancel_sos_alert', params: {
+      final res = await _client.rpc('cancel_sos_alert', params: {
         'p_alert_id': alertId,
         'p_note': note?.trim(),
       });
+      _throwIfRefused(res, 'Could not cancel the alert');
 
       final societyId = AppSession.instance.societyId;
       if (societyId != null) {
@@ -570,8 +582,50 @@ class SecurityService extends ChangeNotifier {
     }
   }
 
+  /// A progress note on an open alert — "Reached flat", "Ambulance called".
+  Future<void> logSosResponse(String alertId, String note) async {
+    if (_safeClient == null) return;
+    final res = await _client.rpc('log_sos_response', params: {
+      'p_alert_id': alertId,
+      'p_note': note.trim(),
+    });
+    _throwIfRefused(res, 'Could not add the note');
+    notifyListeners();
+  }
+
+  /// Alerts as the gate sees them.
+  ///
+  /// A guard cannot read `residents`, so the usual embedded select would
+  /// return every alert without a name. The RPC returns the same shape with
+  /// the resident's name and without their phone.
+  Future<List<SosAlert>> fetchGateSosAlerts(
+    String societyId, {
+    bool includeClosed = false,
+  }) async {
+    if (_safeClient == null) return [];
+    final res = await _client.rpc('fetch_gate_sos_alerts', params: {
+      'p_society_id': societyId,
+      'p_include_closed': includeClosed,
+    });
+    _throwIfRefused(res, 'Could not load SOS alerts');
+    final list = (res is Map ? res['alerts'] as List? : null) ?? const [];
+    return list
+        .cast<Map<String, dynamic>>()
+        .map(SosAlert.fromMap)
+        .toList();
+  }
+
   Future<void> refreshActiveAlerts(String societyId) async {
     if (_safeClient == null) return;
+    if (AppSession.instance.isGuard) {
+      try {
+        _activeSosAlerts = await fetchGateSosAlerts(societyId);
+        notifyListeners();
+      } catch (e) {
+        debugPrint('SecurityService.refreshActiveAlerts (gate) error: $e');
+      }
+      return;
+    }
     try {
       final res = await _client
           .from('sos_alerts')
@@ -620,14 +674,24 @@ class SecurityService extends ChangeNotifier {
                 try {
                   final alertId = record['id']?.toString();
                   if (alertId != null) {
-                    final fullRes = await _client
-                        .from('sos_alerts')
-                        .select(_selectSosWithJoins)
-                        .eq('id', alertId)
-                        .maybeSingle();
+                    SosAlert? alert;
+                    if (AppSession.instance.isGuard) {
+                      // refreshActiveAlerts just re-read the open alerts
+                      // with names; a closed one is still worth a plain row.
+                      alert = _activeSosAlerts
+                              .where((a) => a.id == alertId)
+                              .firstOrNull ??
+                          SosAlert.fromMap(record);
+                    } else {
+                      final fullRes = await _client
+                          .from('sos_alerts')
+                          .select(_selectSosWithJoins)
+                          .eq('id', alertId)
+                          .maybeSingle();
+                      if (fullRes != null) alert = SosAlert.fromMap(fullRes);
+                    }
 
-                    if (fullRes != null) {
-                      final alert = SosAlert.fromMap(fullRes);
+                    if (alert != null && !_sosEventController.isClosed) {
                       _sosEventController.add(alert);
                     }
                   }
@@ -641,6 +705,22 @@ class SecurityService extends ChangeNotifier {
     } catch (e) {
       debugPrint('Error establishing SOS realtime channel: $e');
     }
+  }
+
+  /// Drops the SOS subscription — call on sign-out. [initRealtime] only
+  /// ever subscribed once per app run, so signing in as someone from
+  /// another society kept listening to the first society's alerts.
+  void disposeRealtime() {
+    final channel = _sosChannel;
+    _sosChannel = null;
+    if (channel != null) {
+      try {
+        _client.removeChannel(channel);
+      } catch (_) {}
+    }
+    _initializedRealtime = false;
+    _activeSosAlerts = [];
+    notifyListeners();
   }
 
   @override

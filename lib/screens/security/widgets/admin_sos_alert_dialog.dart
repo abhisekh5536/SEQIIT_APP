@@ -1,10 +1,19 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../../../models/security_models.dart';
+import '../../../services/app_session.dart';
+import '../../../services/guard_service.dart';
 import '../../../services/security_service.dart';
 
+/// Full-screen-ish SOS dialog for the people who respond: society admins
+/// and gate guards.
+///
+/// A guard never sees the resident's number. "Call flat" asks the server
+/// for it one call at a time (logged), where an admin dials directly.
 class AdminSosAlertDialog extends StatefulWidget {
   final SosAlert alert;
   final VoidCallback onDismiss;
@@ -35,6 +44,9 @@ class _AdminSosAlertDialogState extends State<AdminSosAlertDialog>
     with SingleTickerProviderStateMixin {
   late AnimationController _animController;
   bool _isProcessing = false;
+  Timer? _buzz;
+
+  bool get _isGuard => AppSession.instance.isGuard;
 
   @override
   void initState() {
@@ -43,15 +55,74 @@ class _AdminSosAlertDialogState extends State<AdminSosAlertDialog>
       vsync: this,
       duration: const Duration(milliseconds: 600),
     )..repeat(reverse: true);
+
+    // Keep buzzing while nobody has answered, so an alert that lands while
+    // the phone is on the desk is still noticed. Stops on acknowledge or
+    // close, and after a minute regardless.
+    if (widget.alert.isActive) {
+      var ticks = 0;
+      _buzz = Timer.periodic(const Duration(milliseconds: 1500), (t) {
+        ticks++;
+        if (ticks > 40) t.cancel();
+        HapticFeedback.heavyImpact();
+        try {
+          SystemSound.play(SystemSoundType.alert);
+        } catch (_) {}
+      });
+    }
   }
 
   @override
   void dispose() {
+    _buzz?.cancel();
     _animController.dispose();
     super.dispose();
   }
 
+  Future<void> _callFlat() async {
+    _buzz?.cancel();
+    try {
+      final res = await GuardService.instance.callFlat(
+        flatId: widget.alert.flatId,
+        reason: 'sos',
+      );
+      if (mounted && !res.dialerOpened) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open the dialer on this phone')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+        );
+      }
+    }
+  }
+
+  Future<void> _logReached() async {
+    setState(() => _isProcessing = true);
+    try {
+      await SecurityService.instance
+          .logSosResponse(widget.alert.id, 'Reached the flat');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Noted: reached the flat')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
+    }
+  }
+
   Future<void> _acknowledgeAlert() async {
+    _buzz?.cancel();
     setState(() => _isProcessing = true);
     try {
       await SecurityService.instance.acknowledgeSosAlert(widget.alert.id);
@@ -245,8 +316,26 @@ class _AdminSosAlertDialogState extends State<AdminSosAlertDialog>
 
                 const SizedBox(height: 16),
 
-                // Call Resident Action
-                if (alert.residentPhone != null && alert.residentPhone!.isNotEmpty)
+                // Call the flat. A guard goes through the logged RPC; an
+                // admin already has the number.
+                if (_isGuard)
+                  ElevatedButton.icon(
+                    onPressed: _callFlat,
+                    icon: const Icon(Icons.phone_in_talk, color: Colors.white),
+                    label: const Text(
+                      'Call flat',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.teal,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  )
+                else if (alert.residentPhone != null && alert.residentPhone!.isNotEmpty)
                   ElevatedButton.icon(
                     onPressed: () {
                       SecurityService.instance.launchCall(
@@ -269,6 +358,21 @@ class _AdminSosAlertDialogState extends State<AdminSosAlertDialog>
                       ),
                     ),
                   ),
+
+                if (_isGuard && alert.isAcknowledged) ...[
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: _isProcessing ? null : _logReached,
+                    icon: const Icon(Icons.directions_run_rounded),
+                    label: const Text('Reached the flat'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                ],
 
                 const SizedBox(height: 12),
 

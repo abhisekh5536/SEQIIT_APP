@@ -807,6 +807,11 @@ class VehiclesParkingService extends ChangeNotifier {
     });
 
     if (rpcRes is Map) {
+      // Since migration 17 the lookup refuses callers who are not a guard
+      // or admin of this society. A refusal is not "not registered".
+      if (rpcRes['success'] == false) {
+        throw Exception(rpcRes['error']?.toString() ?? 'Lookup refused');
+      }
       return PlateLookupResult.fromMap(Map<String, dynamic>.from(rpcRes), clean);
     }
     return unregistered();

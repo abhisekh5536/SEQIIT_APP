@@ -71,6 +71,28 @@ class VisitorsService extends ChangeNotifier {
   static const _selectBasicJoins =
       '*, flats(flat_number, blocks(name))';
 
+  /// True only when the RPC does not exist on this database (an older
+  /// schema). A refusal from an RPC that does exist must reach the user: the
+  /// direct-table fallbacks below would otherwise retry the same action
+  /// under different rules, or hide the server's reason.
+  static bool _isMissingRpc(Object e) =>
+      e is PostgrestException && (e.code == 'PGRST202' || e.code == '42883');
+
+  /// Unwraps the `{success, error}` envelope the visitor RPCs return.
+  static Map<String, dynamic> _rpcOk(dynamic res, String fallbackError) {
+    if (res is Map) {
+      final map = Map<String, dynamic>.from(res);
+      if (map['success'] == true) return map;
+      throw Exception(map['error']?.toString() ?? fallbackError);
+    }
+    throw Exception(fallbackError);
+  }
+
+  /// Role written into the audit trail by the direct fallbacks. The RPCs
+  /// derive it on the server; this only matters on pre-RPC schemas.
+  static String get _gateRole =>
+      AppSession.instance.isGuard ? 'guard' : 'society_admin';
+
   // ── Realtime ──────────────────────────────────────────────────
   //
   // The gate flow is a conversation between two phones: the guard logs a
@@ -407,9 +429,9 @@ class VisitorsService extends ChangeNotifier {
     String? vehicleNumber,
     required VisitorCategory category,
     String? companyOrContext,
+    String? gateId,
   }) async {
     try {
-      // Try RPC first
       try {
         final rpcRes = await _client.rpc('create_visitor_entry', params: {
           'p_society_id': societyId,
@@ -421,24 +443,26 @@ class VisitorsService extends ChangeNotifier {
           'p_vehicle_number': vehicleNumber,
           'p_category': category.dbValue,
           'p_company_or_context': companyOrContext,
+          // Only sent when set, so databases before migration 17 (which
+          // have no such parameter) still resolve the function.
+          'p_gate_id': ?gateId,
         });
 
-        if (rpcRes is Map && rpcRes['success'] == true) {
-          return rpcRes['visitor_id']?.toString() ?? '';
-        } else if (rpcRes is Map && rpcRes['error'] != null) {
-          throw Exception(rpcRes['error']);
-        }
-      } catch (rpcError) {
-        debugPrint('create_visitor_entry RPC failed, falling back: $rpcError');
+        final map = _rpcOk(rpcRes, 'Could not log the visitor');
+        notifyListeners();
+        return map['visitor_id']?.toString() ?? '';
+      } on PostgrestException catch (rpcError) {
+        if (!_isMissingRpc(rpcError)) rethrow;
+        debugPrint('create_visitor_entry RPC missing, inserting directly: $rpcError');
       }
 
-      // Direct fallback
+      // Direct fallback for schemas without the RPC.
       final user = _client.auth.currentUser;
       final insertRes = await _client.from('visitors').insert({
         'society_id': societyId,
         'flat_id': flatId,
         'block_id': blockId,
-        'created_by_type': 'society_admin',
+        'created_by_type': _gateRole,
         'created_by': user?.id,
         'visitor_name': visitorName.trim(),
         'visitor_phone': visitorPhone?.trim(),
@@ -459,7 +483,7 @@ class VisitorsService extends ChangeNotifier {
         'to_status': 'pending_approval',
         'note': 'Visitor logged at gate',
         'changed_by': user?.id,
-        'changed_by_role': 'society_admin',
+        'changed_by_role': _gateRole,
       });
 
       notifyListeners();
@@ -487,7 +511,6 @@ class VisitorsService extends ChangeNotifier {
     List<Map<String, String>> groupMembers = const [],
   }) async {
     try {
-      // Try RPC first
       try {
         final rpcRes = await _client.rpc('create_pre_approval', params: {
           'p_society_id': societyId,
@@ -507,16 +530,15 @@ class VisitorsService extends ChangeNotifier {
               .toList(),
         });
 
-        if (rpcRes is Map && rpcRes['success'] == true) {
-          return {
-            'visitor_id': rpcRes['visitor_id']?.toString() ?? '',
-            'approval_code': rpcRes['approval_code']?.toString() ?? '',
-          };
-        } else if (rpcRes is Map && rpcRes['error'] != null) {
-          throw Exception(rpcRes['error']);
-        }
-      } catch (rpcError) {
-        debugPrint('create_pre_approval RPC failed, falling back: $rpcError');
+        final map = _rpcOk(rpcRes, 'Could not create the pre-approval');
+        notifyListeners();
+        return {
+          'visitor_id': map['visitor_id']?.toString() ?? '',
+          'approval_code': map['approval_code']?.toString() ?? '',
+        };
+      } on PostgrestException catch (rpcError) {
+        if (!_isMissingRpc(rpcError)) rethrow;
+        debugPrint('create_pre_approval RPC missing, inserting directly: $rpcError');
       }
 
       // Direct fallback
@@ -595,7 +617,6 @@ class VisitorsService extends ChangeNotifier {
   }) async {
     String? codeResult;
     try {
-      // Try RPC first
       bool rpcSucceeded = false;
       try {
         final rpcRes = await _client.rpc('respond_to_visitor_request', params: {
@@ -604,15 +625,16 @@ class VisitorsService extends ChangeNotifier {
           'p_denied_reason': deniedReason,
         });
 
-        if (rpcRes is Map && rpcRes['success'] == true) {
-          codeResult = rpcRes['approval_code']?.toString();
-          rpcSucceeded = true;
-        } else if (rpcRes is Map && rpcRes['error'] != null) {
-          throw Exception(rpcRes['error']);
-        }
-      } catch (rpcError) {
+        // A refusal ("You are not a resident of this flat") is final. It
+        // used to fall through to a direct update, which an admin's RLS
+        // allowed — approving on the resident's behalf by accident.
+        final map = _rpcOk(rpcRes, 'Could not record your answer');
+        codeResult = map['approval_code']?.toString();
+        rpcSucceeded = true;
+      } on PostgrestException catch (rpcError) {
+        if (!_isMissingRpc(rpcError)) rethrow;
         debugPrint(
-            'respond_to_visitor_request RPC failed, falling back: $rpcError');
+            'respond_to_visitor_request RPC missing, updating directly: $rpcError');
       }
 
       if (!rpcSucceeded) {
@@ -687,12 +709,12 @@ class VisitorsService extends ChangeNotifier {
           'p_visitor_id': visitorId,
           'p_entry_gate': entryGate,
         });
-        if (rpcRes is Map && rpcRes['success'] == true) return;
-        if (rpcRes is Map && rpcRes['error'] != null) {
-          throw Exception(rpcRes['error']);
-        }
-      } catch (rpcError) {
-        debugPrint('check_in_visitor RPC failed, falling back: $rpcError');
+        _rpcOk(rpcRes, 'Could not check the visitor in');
+        notifyListeners();
+        return;
+      } on PostgrestException catch (rpcError) {
+        if (!_isMissingRpc(rpcError)) rethrow;
+        debugPrint('check_in_visitor RPC missing, updating directly: $rpcError');
       }
 
       final user = _client.auth.currentUser;
@@ -709,7 +731,7 @@ class VisitorsService extends ChangeNotifier {
         'to_status': 'checked_in',
         'note': entryGate != null ? 'Checked in at $entryGate' : 'Checked in',
         'changed_by': user?.id,
-        'changed_by_role': 'society_admin',
+        'changed_by_role': _gateRole,
       });
       notifyListeners();
     } catch (e) {
@@ -724,12 +746,12 @@ class VisitorsService extends ChangeNotifier {
         final rpcRes = await _client.rpc('check_out_visitor', params: {
           'p_visitor_id': visitorId,
         });
-        if (rpcRes is Map && rpcRes['success'] == true) return;
-        if (rpcRes is Map && rpcRes['error'] != null) {
-          throw Exception(rpcRes['error']);
-        }
-      } catch (rpcError) {
-        debugPrint('check_out_visitor RPC failed, falling back: $rpcError');
+        _rpcOk(rpcRes, 'Could not check the visitor out');
+        notifyListeners();
+        return;
+      } on PostgrestException catch (rpcError) {
+        if (!_isMissingRpc(rpcError)) rethrow;
+        debugPrint('check_out_visitor RPC missing, updating directly: $rpcError');
       }
 
       final user = _client.auth.currentUser;
@@ -745,7 +767,7 @@ class VisitorsService extends ChangeNotifier {
         'to_status': 'checked_out',
         'note': 'Checked out',
         'changed_by': user?.id,
-        'changed_by_role': 'society_admin',
+        'changed_by_role': _gateRole,
       });
       notifyListeners();
     } catch (e) {
@@ -761,12 +783,12 @@ class VisitorsService extends ChangeNotifier {
         final rpcRes = await _client.rpc('cancel_pre_approval', params: {
           'p_visitor_id': visitorId,
         });
-        if (rpcRes is Map && rpcRes['success'] == true) return;
-        if (rpcRes is Map && rpcRes['error'] != null) {
-          throw Exception(rpcRes['error']);
-        }
-      } catch (rpcError) {
-        debugPrint('cancel_pre_approval RPC failed, falling back: $rpcError');
+        _rpcOk(rpcRes, 'Could not cancel the pre-approval');
+        notifyListeners();
+        return;
+      } on PostgrestException catch (rpcError) {
+        if (!_isMissingRpc(rpcError)) rethrow;
+        debugPrint('cancel_pre_approval RPC missing, updating directly: $rpcError');
       }
 
       final user = _client.auth.currentUser;
@@ -797,13 +819,13 @@ class VisitorsService extends ChangeNotifier {
           'p_approval_code': approvalCode.trim().toUpperCase(),
           'p_society_id': AppSession.instance.societyId,
         });
-        if (rpcRes is Map && rpcRes['success'] == true) {
-          return Map<String, dynamic>.from(rpcRes);
-        } else if (rpcRes is Map && rpcRes['error'] != null) {
-          throw Exception(rpcRes['error']);
-        }
-      } catch (rpcError) {
-        debugPrint('verify_pre_approval RPC failed, falling back: $rpcError');
+        // "Too many attempts" and "expired" must reach the gate as said.
+        // Falling back to a direct lookup here would also sidestep the
+        // server's attempt throttle.
+        return _rpcOk(rpcRes, 'No valid visitor found for this code');
+      } on PostgrestException catch (rpcError) {
+        if (!_isMissingRpc(rpcError)) rethrow;
+        debugPrint('verify_pre_approval RPC missing, querying directly: $rpcError');
       }
 
       // Direct fallback for databases without the RPC. RLS scopes this to

@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'screens/admin/security_staff_screen.dart';
 import 'screens/admin_approvals_screen.dart';
 import 'screens/auth_screen.dart';
 import 'screens/complaints/complaints_root_screen.dart';
@@ -12,6 +13,10 @@ import 'screens/complaints/raise_complaint_screen.dart';
 import 'screens/directory_screen.dart';
 import 'screens/facilities/facilities_root_screen.dart';
 import 'screens/flats_management_screen.dart';
+import 'screens/guard/guard_access_revoked_screen.dart';
+import 'screens/guard/guard_alerts_screen.dart';
+import 'screens/guard/guard_profile_screen.dart';
+import 'screens/guard/guard_shell.dart';
 import 'screens/join_society_screen.dart';
 import 'screens/main_shell.dart';
 import 'screens/my_flat_screen.dart';
@@ -25,10 +30,12 @@ import 'screens/vehicles/guard/vehicle_gate_lookup_screen.dart';
 import 'screens/vehicles/vehicles_parking_root_screen.dart';
 import 'screens/visitors/visitors_root_screen.dart';
 import 'services/app_session.dart';
+import 'services/guard_service.dart';
 import 'services/local_push_service.dart';
 import 'services/notification_preferences_service.dart';
 import 'services/notifications_service.dart';
 import 'services/push_messaging_service.dart';
+import 'services/security_service.dart';
 import 'services/visitors_service.dart';
 import 'theme/app_theme.dart';
 import 'theme/theme_controller.dart';
@@ -125,6 +132,10 @@ class _SocietyAppState extends State<SocietyApp> {
     _visitorLiveSub?.cancel();
     _visitorLiveSub = null;
     VisitorsService.instance.disposeRealtime();
+    // Otherwise the next account to sign in on this phone keeps listening
+    // to the previous society's SOS channel.
+    SecurityService.instance.disposeRealtime();
+    GuardService.instance.reset();
   }
 
   @override
@@ -146,27 +157,41 @@ class _SocietyAppState extends State<SocietyApp> {
           darkTheme: AppTheme.dark(),
           themeMode: themeMode,
           home: _loggedIn
-              ? MainShell(themeController: widget.themeController)
+              ? _RoleHome(themeController: widget.themeController)
               : const AuthScreen(),
           routes: {
             '/settings': (context) => SettingsScreen(
                   themeController: widget.themeController,
                 ),
             '/notifications': (context) => const NotificationsScreen(),
-            '/maintenance': (context) => const _FeatureScreen('Maintenance'),
+            '/maintenance': (context) =>
+                const _NotForGuards(child: _FeatureScreen('Maintenance')),
             '/visitors': (context) => const VisitorsRootScreen(),
-            '/complaints': (context) => const ComplaintsRootScreen(),
-            '/complaints/raise': (context) => const RaiseComplaintScreen(),
-            '/staff': (context) => const _FeatureScreen('Staff'),
-            '/facilities': (context) => const FacilitiesRootScreen(),
-            '/meetings': (context) => const _FeatureScreen('Meetings'),
+            '/complaints': (context) =>
+                const _NotForGuards(child: ComplaintsRootScreen()),
+            '/complaints/raise': (context) =>
+                const _NotForGuards(child: RaiseComplaintScreen()),
+            '/staff': (context) =>
+                const _NotForGuards(child: _FeatureScreen('Staff')),
+            '/facilities': (context) =>
+                const _NotForGuards(child: FacilitiesRootScreen()),
+            '/meetings': (context) =>
+                const _NotForGuards(child: _FeatureScreen('Meetings')),
             '/notices': (context) => const NoticesScreen(),
             '/notices/create': (context) => const _AdminGate(
                   child: CreateEditNoticeScreen(),
                 ),
-            '/my-flat': (context) => const MyFlatScreen(),
-            '/profile': (context) => const ProfileScreen(),
-            '/flats-management': (context) => const FlatsManagementScreen(),
+            '/my-flat': (context) =>
+                const _NotForGuards(child: MyFlatScreen()),
+            // A guard has no flat or household; their page is the gate one.
+            '/profile': (context) => AppSession.instance.isGuard
+                ? GuardProfileScreen(
+                    themeController: widget.themeController,
+                    showBack: true,
+                  )
+                : const ProfileScreen(),
+            '/flats-management': (context) =>
+                const _NotForGuards(child: FlatsManagementScreen()),
             '/admin-vehicles': (context) => const _AdminGate(
                   child: VehiclesParkingRootScreen(),
                 ),
@@ -178,9 +203,70 @@ class _SocietyAppState extends State<SocietyApp> {
             '/admin-approvals': (context) => const _AdminGate(
                   child: AdminApprovalsScreen(),
                 ),
-            '/join-society': (context) => const JoinSocietyScreen(),
-            '/security': (context) => const SecurityRootScreen(),
+            '/join-society': (context) =>
+                const _NotForGuards(child: JoinSocietyScreen()),
+            // Notification taps for SOS land here. A guard responds from
+            // the gate view, not the resident "raise an SOS" screen.
+            '/security': (context) => AppSession.instance.isGuard
+                ? const GuardAlertsScreen(showBack: true)
+                : const SecurityRootScreen(),
+            '/security-staff': (context) => const _AdminGate(
+                  child: SecurityStaffScreen(),
+                ),
           },
+        );
+      },
+    );
+  }
+}
+
+/// Picks the shell for the signed-in role once the session knows it.
+///
+/// Residents and admins get [MainShell] straight away (it shows its own
+/// skeleton while loading). A guard switches to [GuardShell] as soon as the
+/// session confirms the `society_guards` row.
+class _RoleHome extends StatelessWidget {
+  final ThemeController themeController;
+
+  const _RoleHome({required this.themeController});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: AppSession.instance,
+      builder: (context, _) {
+        final session = AppSession.instance;
+        if (session.isGuard) {
+          return GuardShell(themeController: themeController);
+        }
+        if (session.isGuardDeactivated) {
+          return const GuardAccessRevokedScreen();
+        }
+        return MainShell(themeController: themeController);
+      },
+    );
+  }
+}
+
+/// Keeps a guard out of resident and office screens. RLS already returns
+/// nothing to them there; this makes the refusal visible instead of an
+/// empty page.
+class _NotForGuards extends StatelessWidget {
+  final Widget child;
+
+  const _NotForGuards({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: AppSession.instance,
+      builder: (context, _) {
+        if (!AppSession.instance.isGuard) return child;
+        return const Scaffold(
+          body: _AccessDeniedView(
+            title: 'Not on the gate app',
+            message: 'This section is for residents and the society office.',
+          ),
         );
       },
     );
@@ -212,7 +298,13 @@ class _AdminGate extends StatelessWidget {
 }
 
 class _AccessDeniedView extends StatelessWidget {
-  const _AccessDeniedView();
+  final String title;
+  final String message;
+
+  const _AccessDeniedView({
+    this.title = 'Admins only',
+    this.message = 'This section is managed by the society office.',
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -237,14 +329,14 @@ class _AccessDeniedView extends StatelessWidget {
             ),
             const SizedBox(height: 20),
             Text(
-              'Admins only',
+              title,
               style: textTheme.titleLarge?.copyWith(
                 fontWeight: FontWeight.w800,
               ),
             ),
             const SizedBox(height: 8),
             Text(
-              'This section is managed by the society office.',
+              message,
               textAlign: TextAlign.center,
               style: textTheme.bodyMedium?.copyWith(
                 color: p.textSecondary,

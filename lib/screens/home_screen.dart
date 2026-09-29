@@ -51,69 +51,8 @@ class _HomeScreenState extends State<HomeScreen> {
     ),
   ];
 
-  /// Gate-first actions for a security guard.
-  ///
-  /// A guard has no flat, so the resident tiles ("My Flat", "Pay dues",
-  /// "Pre-approve a visitor") are meaningless to them. These are the four
-  /// things the job actually needs.
-  static const _guardServices = [
-    SocietyService(
-      title: 'Gate check',
-      subtitle: 'Verify a number plate',
-      icon: Icons.directions_car_outlined,
-      route: '/gate-vehicles',
-      colorIndex: 0,
-    ),
-    SocietyService(
-      title: 'Visitors',
-      subtitle: 'Log & verify entries',
-      icon: Icons.qr_code_2_outlined,
-      route: '/visitors',
-      colorIndex: 1,
-    ),
-    SocietyService(
-      title: 'Emergency',
-      subtitle: 'Contacts & alerts',
-      icon: Icons.emergency_outlined,
-      route: '/security',
-      colorIndex: 2,
-    ),
-    SocietyService(
-      title: 'Notices',
-      subtitle: 'Society announcements',
-      icon: Icons.campaign_outlined,
-      route: '/notices',
-      colorIndex: 3,
-    ),
-  ];
-
-  static const _guardQuickActions = [
-    QuickAction(
-      label: 'Plate',
-      icon: Icons.pin_rounded,
-      route: '/gate-vehicles',
-    ),
-    QuickAction(
-      label: 'Visitors',
-      icon: Icons.qr_code_rounded,
-      route: '/visitors',
-    ),
-    QuickAction(
-      label: 'Emergency',
-      icon: Icons.emergency_rounded,
-      route: '/security',
-    ),
-    QuickAction(
-      label: 'Notices',
-      icon: Icons.campaign_rounded,
-      route: '/notices',
-    ),
-  ];
-
-  static List<SocietyService> _servicesFor(bool isAdmin, {bool isGuard = false}) =>
-      isGuard
-      ? _guardServices
-      : isAdmin
+  // Guards have their own shell (GuardShell) and never see this screen.
+  static List<SocietyService> _servicesFor(bool isAdmin) => isAdmin
       ? [
           const SocietyService(
             title: 'Approvals',
@@ -158,10 +97,10 @@ class _HomeScreenState extends State<HomeScreen> {
             colorIndex: 2,
           ),
           const SocietyService(
-            title: 'Staff',
-            subtitle: 'Roster & guards',
-            icon: Icons.engineering_outlined,
-            route: '/staff',
+            title: 'Guards',
+            subtitle: 'Gate staff & gates',
+            icon: Icons.local_police_outlined,
+            route: '/security-staff',
             colorIndex: 1,
           ),
           const SocietyService(
@@ -428,8 +367,7 @@ class _HomeScreenState extends State<HomeScreen> {
           return const JoinSocietyScreen();
         }
 
-        final services =
-            _servicesFor(session.isAdmin, isGuard: session.isGuard);
+        final services = _servicesFor(session.isAdmin);
         return Scaffold(
           body: SafeArea(
             bottom: false,
@@ -525,9 +463,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
                   sliver: SliverToBoxAdapter(
                     child: QuickActionRail(
-                      actions: session.isGuard
-                          ? _guardQuickActions
-                          : _quickActions,
+                      actions: _quickActions,
                       onSelected: (action) =>
                           Navigator.pushNamed(context, action.route),
                     ),

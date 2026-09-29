@@ -282,6 +282,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       _navRow(
                         context,
                         p,
+                        icon: Icons.local_police_outlined,
+                        title: 'Guards & Gates',
+                        subtitle: 'Add gate staff, switch access off, name gates',
+                        onTap: () => Navigator.pushNamed(context, '/security-staff'),
+                      ),
+                      _divider(p),
+                      _navRow(
+                        context,
+                        p,
                         icon: Icons.people_outline_rounded,
                         title: 'Resident Directory',
                         subtitle: 'View and manage society occupants',
