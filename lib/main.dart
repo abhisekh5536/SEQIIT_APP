@@ -19,6 +19,7 @@ import 'screens/guard/guard_profile_screen.dart';
 import 'screens/guard/guard_shell.dart';
 import 'screens/join_society_screen.dart';
 import 'screens/main_shell.dart';
+import 'screens/marketplace/marketplace_root_screen.dart';
 import 'screens/my_flat_screen.dart';
 import 'screens/notices/create_edit_notice_screen.dart';
 import 'screens/notices_screen.dart';
@@ -213,6 +214,8 @@ class _SocietyAppState extends State<SocietyApp> {
             '/security-staff': (context) => const _AdminGate(
                   child: SecurityStaffScreen(),
                 ),
+            '/marketplace': (context) =>
+                const _NotForGuards(child: MarketplaceRootScreen()),
           },
         );
       },

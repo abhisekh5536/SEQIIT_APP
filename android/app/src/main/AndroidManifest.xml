@@ -65,8 +65,8 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
-
-        <!-- Android 11+ package visibility: without these, canLaunchUrl()
+        <!-- Marketplace: call seller / open WhatsApp via url_launcher.
+             Android 11+ package visibility: without these, canLaunchUrl()
              returns false for tel: and the dialer never opens. That silently
              breaks the guard's "call resident" button and degrades the
              emergency-contacts screen. -->
