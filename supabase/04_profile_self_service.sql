@@ -136,11 +136,15 @@ create policy "residents_update_household" on public.residents
 for update to authenticated
 using (
   public.is_society_admin(society_id)
-  or (resident_type in ('family', 'tenant') and created_by = auth.uid())
+  or (resident_type in ('family', 'tenant')
+      and created_by = auth.uid()
+      and public.lives_in_flat(flat_id))
 )
 with check (
   public.is_society_admin(society_id)
-  or (resident_type in ('family', 'tenant') and created_by = auth.uid())
+  or (resident_type in ('family', 'tenant')
+      and created_by = auth.uid()
+      and public.lives_in_flat(flat_id))
 );
 
 drop policy if exists "residents_delete_household" on public.residents;
@@ -148,8 +152,12 @@ create policy "residents_delete_household" on public.residents
 for delete to authenticated
 using (
   public.is_society_admin(society_id)
-  or (resident_type in ('family', 'tenant') and created_by = auth.uid())
+  or (resident_type in ('family', 'tenant')
+      and created_by = auth.uid()
+      and public.lives_in_flat(flat_id))
 );
+-- Which columns a household member's creator may change is limited by
+-- the residents_before_write trigger (migration 20).
 
 -- ------------------------------------------------------------
 -- DONE. Verify:

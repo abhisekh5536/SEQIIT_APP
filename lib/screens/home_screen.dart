@@ -10,6 +10,7 @@ import '../services/complaints_service.dart';
 import '../services/marketplace_service.dart';
 import '../services/notifications_service.dart';
 import '../services/notices_service.dart';
+import '../services/resident_documents_service.dart';
 import '../services/security_service.dart';
 import '../services/visitors_service.dart';
 import '../theme/app_theme.dart';
@@ -140,6 +141,13 @@ class _HomeScreenState extends State<HomeScreen> {
             colorIndex: 7,
           ),
           const SocietyService(
+            title: 'Documents',
+            subtitle: 'Tenant & owner KYC',
+            icon: Icons.folder_shared_outlined,
+            route: '/documents',
+            colorIndex: 4,
+          ),
+          const SocietyService(
             title: 'Marketplace',
             subtitle: 'Moderate listings',
             icon: Icons.storefront_outlined,
@@ -205,6 +213,13 @@ class _HomeScreenState extends State<HomeScreen> {
             colorIndex: 7,
           ),
           const SocietyService(
+            title: 'Documents',
+            subtitle: 'Agreement & ID proofs',
+            icon: Icons.folder_shared_outlined,
+            route: '/documents',
+            colorIndex: 4,
+          ),
+          const SocietyService(
             title: 'Marketplace',
             subtitle: 'Buy & sell locally',
             icon: Icons.storefront_outlined,
@@ -237,6 +252,13 @@ class _HomeScreenState extends State<HomeScreen> {
               MarketplaceService.instance.pendingReportsCount > 0
           ? '${MarketplaceService.instance.pendingReportsCount} reported'
           : null,
+      'documents' => AppSession.instance.isAdmin
+          ? (ResidentDocumentsService.instance.adminPendingCount > 0
+              ? '${ResidentDocumentsService.instance.adminPendingCount} to verify'
+              : null)
+          : (ResidentDocumentsService.instance.attentionCount > 0
+              ? 'Action needed'
+              : null),
       'security' => SecurityService.instance.activeSosAlerts.isNotEmpty
           ? '🚨 ${SecurityService.instance.activeSosAlerts.length} SOS'
           : null,
@@ -252,6 +274,7 @@ class _HomeScreenState extends State<HomeScreen> {
     NotificationsService.instance.addListener(_onNotificationsChanged);
     SecurityService.instance.addListener(_onSecurityChanged);
     MarketplaceService.instance.addListener(_onSecurityChanged);
+    ResidentDocumentsService.instance.addListener(_onSecurityChanged);
     _sosSub = SecurityService.instance.onSosAlertReceived.listen((alert) {
       if (!mounted) return;
       if (AppSession.instance.isAdmin && alert.isActive) {
@@ -269,6 +292,7 @@ class _HomeScreenState extends State<HomeScreen> {
     NotificationsService.instance.removeListener(_onNotificationsChanged);
     SecurityService.instance.removeListener(_onSecurityChanged);
     MarketplaceService.instance.removeListener(_onSecurityChanged);
+    ResidentDocumentsService.instance.removeListener(_onSecurityChanged);
     _sosSub?.cancel();
     super.dispose();
   }
@@ -305,6 +329,7 @@ class _HomeScreenState extends State<HomeScreen> {
         await AppSession.instance.load();
       }
 
+      ResidentDocumentsService.instance.refreshCounts();
       final notices = await NoticesService.instance.fetchResidentNotices();
       int openReqs = 0;
       try {

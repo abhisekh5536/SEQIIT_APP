@@ -75,6 +75,45 @@ void main() {
     expect(results, isEmpty);
   });
 
+  testWidgets('a validator refuses a malformed answer', (tester) async {
+    final results = <String?>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () async => results.add(
+              await showTextInputDialog(
+                context,
+                title: 'Add PAN',
+                enableSuggestions: false,
+                autocorrect: false,
+                validator: (v) => v.length == 10 ? null : 'A PAN has 10 characters',
+              ),
+            ),
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    final field = tester.widget<TextField>(find.byType(TextField));
+    expect(field.enableSuggestions, isFalse);
+    expect(field.autocorrect, isFalse);
+
+    await tester.enterText(find.byType(TextFormField), 'ABC');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    expect(find.text('A PAN has 10 characters'), findsOneWidget);
+    expect(results, isEmpty);
+
+    await tester.enterText(find.byType(TextFormField), 'ABCDE1234F');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    expect(results, ['ABCDE1234F']);
+  });
+
   testWidgets('Guards & Gates: adding a gate does not crash', (tester) async {
     await tester.pumpWidget(
       MaterialApp(theme: AppTheme.light(), home: const SecurityStaffScreen()),

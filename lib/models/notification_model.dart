@@ -129,6 +129,14 @@ class AppNotification {
         return Icons.block_rounded;
       case 'facility_status_changed':
         return Icons.pool_rounded;
+      case 'document_submitted':
+        return Icons.upload_file_rounded;
+      case 'document_verified':
+        return Icons.verified_rounded;
+      case 'document_rejected':
+        return Icons.report_gmailerrorred_rounded;
+      case 'document_expiring':
+        return Icons.event_busy_rounded;
       default:
         return Icons.notifications_rounded;
     }
@@ -179,6 +187,14 @@ class AppNotification {
         return const Color(0xFFDC2626);
       case 'facility_status_changed':
         return const Color(0xFF0891B2);
+      case 'document_submitted':
+        return const Color(0xFFD97706);
+      case 'document_verified':
+        return const Color(0xFF16A34A);
+      case 'document_rejected':
+        return const Color(0xFFDC2626);
+      case 'document_expiring':
+        return const Color(0xFFD97706);
       default:
         return const Color(0xFF64748B);
     }

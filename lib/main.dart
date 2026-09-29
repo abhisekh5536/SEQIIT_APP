@@ -11,6 +11,7 @@ import 'screens/auth_screen.dart';
 import 'screens/complaints/complaints_root_screen.dart';
 import 'screens/complaints/raise_complaint_screen.dart';
 import 'screens/directory_screen.dart';
+import 'screens/documents/documents_root_screen.dart';
 import 'screens/facilities/facilities_root_screen.dart';
 import 'screens/flats_management_screen.dart';
 import 'screens/guard/guard_access_revoked_screen.dart';
@@ -36,6 +37,7 @@ import 'services/guard_service.dart';
 import 'services/local_push_service.dart';
 import 'services/notification_preferences_service.dart';
 import 'services/notifications_service.dart';
+import 'services/resident_documents_service.dart';
 import 'services/push_messaging_service.dart';
 import 'services/security_service.dart';
 import 'services/visitors_service.dart';
@@ -101,6 +103,7 @@ class _SocietyAppState extends State<SocietyApp> {
         } else {
           _stopVisitorRealtime();
           AppSession.instance.reset();
+          ResidentDocumentsService.instance.clear();
         }
       });
     } catch (_) {
@@ -220,6 +223,9 @@ class _SocietyAppState extends State<SocietyApp> {
                 ),
             '/marketplace': (context) =>
                 const _NotForGuards(child: MarketplaceRootScreen()),
+            // Tenant & owner documents. Guards never see them.
+            '/documents': (context) =>
+                const _NotForGuards(child: DocumentsRootScreen()),
           },
         );
       },

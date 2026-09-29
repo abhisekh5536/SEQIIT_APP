@@ -4,7 +4,8 @@
 -- Read-only. Paste into the Supabase SQL editor and run. Each row checks
 -- one object that only that migration creates. Run any "missing" ones in
 -- number order, then re-run 17 and 18 last (both are safe to re-run) so
--- their guard policies win over the older ones from 14.
+-- their guard policies win over the older ones from 14. Run 20 after 19:
+-- its notification type list is the union of every module's.
 -- ============================================================
 select migration, checks_for,
        case when ok then 'applied' else 'MISSING' end as status
@@ -32,6 +33,13 @@ from (values
   ('17_guard_identity',         'function caller_gate_role(uuid)',
      to_regprocedure('public.caller_gate_role(uuid)') is not null),
   ('18_guard_panel',            'function guard_call_flat(uuid,text,uuid)',
-     to_regprocedure('public.guard_call_flat(uuid,text,uuid)') is not null)
+     to_regprocedure('public.guard_call_flat(uuid,text,uuid)') is not null),
+  ('20_resident_documents',     'table resident_documents',
+     to_regclass('public.resident_documents') is not null),
+  ('20_resident_documents',     'trigger trg_residents_before_write',
+     exists (select 1 from pg_trigger
+              where tgname = 'trg_residents_before_write')),
+  ('20_resident_documents',     'Vault secret resident_pii_key_v1 (PAN encryption)',
+     exists (select 1 from vault.secrets where name = 'resident_pii_key_v1'))
 ) as m(migration, checks_for, ok)
 order by migration;

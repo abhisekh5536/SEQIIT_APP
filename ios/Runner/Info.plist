@@ -30,9 +30,9 @@
 	     usage string. image_picker is used for visitor photos, complaint
 	     photos, notice images and vehicle RC documents. -->
 	<key>NSCameraUsageDescription</key>
-	<string>Saqiit uses the camera to capture visitor and vehicle photos at the gate.</string>
+	<string>Saqiit uses the camera to capture visitor and vehicle photos at the gate, and to photograph your rent agreement and other flat documents.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Saqiit lets you attach photos to complaints, notices and visitor records.</string>
+	<string>Saqiit lets you attach photos to complaints, notices and visitor records, and upload photos of your flat documents.</string>
 	<!-- Required for canLaunchUrl('tel:') to return true, which the emergency
 	     contacts and the guard's call-resident action depend on. -->
 	<key>LSApplicationQueriesSchemes</key>

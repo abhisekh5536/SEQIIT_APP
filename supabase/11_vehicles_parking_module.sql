@@ -37,6 +37,7 @@ language sql stable security definer set search_path = public as $$
     select 1 from public.society_admin_users a
     where a.id = auth.uid()
       and a.society_id = p_society_id
+      and a.status = 'active'
   );
 $$;
 
