@@ -8,6 +8,7 @@ import '../services/app_session.dart';
 import '../theme/app_theme.dart';
 import '../widgets/home_widgets.dart';
 import '../widgets/resident_widgets.dart';
+import 'documents/resident_documents_screen.dart';
 
 enum _StatusFilter { all, owner, tenant, family, vacant }
 
@@ -765,10 +766,30 @@ class _DirectoryScreenState extends State<DirectoryScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: p.card,
-      builder: (sheetContext) => _FlatDetailSheet(unit: unit, onCall: _callResident, isAdmin: isAdmin, onEdit: () {
-        Navigator.pop(sheetContext);
-        _openEditDetails(context, unit);
-      }),
+      builder: (sheetContext) => _FlatDetailSheet(
+        unit: unit,
+        onCall: _callResident,
+        isAdmin: isAdmin,
+        onEdit: () {
+          Navigator.pop(sheetContext);
+          _openEditDetails(context, unit);
+        },
+        // Sample data has no real flat ids to look documents up by.
+        onDocuments: isAdmin && !_isMockMode
+            ? () {
+                Navigator.pop(sheetContext);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ResidentDocumentsScreen(
+                      flatId: unit.id,
+                      title: 'Flat ${unit.number}',
+                    ),
+                  ),
+                );
+              }
+            : null,
+      ),
     );
   }
 
@@ -1128,8 +1149,9 @@ class _FlatDetailSheet extends StatelessWidget {
   final ResidenceUnit unit;
   final void Function(Resident resident) onCall;
   final VoidCallback onEdit;
+  final VoidCallback? onDocuments;
   final bool isAdmin;
-  const _FlatDetailSheet({required this.unit, required this.onCall, required this.onEdit, required this.isAdmin});
+  const _FlatDetailSheet({required this.unit, required this.onCall, required this.onEdit, required this.isAdmin, this.onDocuments});
   @override
   Widget build(BuildContext context) {
     final p = AppTheme.paletteFor(Theme.of(context).brightness);
@@ -1178,6 +1200,17 @@ class _FlatDetailSheet extends StatelessWidget {
               ),
             ],
             const SizedBox(height: 24),
+            if (onDocuments != null) ...[
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: onDocuments,
+                  icon: const Icon(Icons.folder_shared_outlined, size: 18),
+                  label: const Text('Documents'),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
             Row(children: [
               if (isAdmin) ...[
                 Expanded(child: OutlinedButton(onPressed: onEdit, child: const Text('Edit details'))),

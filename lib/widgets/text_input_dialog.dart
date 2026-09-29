@@ -28,6 +28,13 @@ Future<String?> showTextInputDialog(
   /// When set, an empty answer is refused with this message instead of
   /// being returned.
   String? requiredMessage,
+
+  /// Extra check on the trimmed answer; return a message to refuse it.
+  String? Function(String value)? validator,
+
+  /// Off for values the keyboard must not learn (PAN, ID numbers).
+  bool enableSuggestions = true,
+  bool autocorrect = true,
 }) {
   return showDialog<String>(
     context: context,
@@ -42,6 +49,9 @@ Future<String?> showTextInputDialog(
       maxLines: maxLines,
       textCapitalization: textCapitalization,
       requiredMessage: requiredMessage,
+      validator: validator,
+      enableSuggestions: enableSuggestions,
+      autocorrect: autocorrect,
     ),
   );
 }
@@ -57,6 +67,9 @@ class _TextInputDialog extends StatefulWidget {
   final int maxLines;
   final TextCapitalization textCapitalization;
   final String? requiredMessage;
+  final String? Function(String value)? validator;
+  final bool enableSuggestions;
+  final bool autocorrect;
 
   const _TextInputDialog({
     required this.title,
@@ -69,6 +82,9 @@ class _TextInputDialog extends StatefulWidget {
     required this.maxLines,
     required this.textCapitalization,
     this.requiredMessage,
+    this.validator,
+    this.enableSuggestions = true,
+    this.autocorrect = true,
   });
 
   @override
@@ -114,9 +130,15 @@ class _TextInputDialogState extends State<_TextInputDialog> {
                   ? TextInputAction.done
                   : TextInputAction.newline,
               onFieldSubmitted: widget.maxLines == 1 ? (_) => _submit() : null,
-              validator: widget.requiredMessage == null
-                  ? null
-                  : (v) => (v ?? '').trim().isEmpty ? widget.requiredMessage : null,
+              enableSuggestions: widget.enableSuggestions,
+              autocorrect: widget.autocorrect,
+              validator: (v) {
+                final text = (v ?? '').trim();
+                if (widget.requiredMessage != null && text.isEmpty) {
+                  return widget.requiredMessage;
+                }
+                return widget.validator?.call(text);
+              },
               decoration: InputDecoration(
                 labelText: widget.label,
                 hintText: widget.hint,

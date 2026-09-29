@@ -7,7 +7,7 @@ import '../models/guard_models.dart';
 /// Holds the signed-in user's role and profile data.
 ///
 /// Loaded once after login (and refreshed on demand):
-/// - [isAdmin]   -> row exists in society_admin_users
+/// - [isAdmin]   -> active row in society_admin_users
 /// - [isGuard]   -> active row in society_guards (migration 17)
 /// - [societyId] -> the society this admin/guard/resident belongs to
 /// - [myResidences] -> resident records linked to this account
@@ -179,7 +179,12 @@ class AppSession extends ChangeNotifier {
         _fetchGuardRow(client, user.id),
       ]);
 
-      final adminRows = (results[0] as List).cast<Map<String, dynamic>>();
+      // A deactivated admin row is not an admin: the server has refused
+      // them since migration 20, and the admin screens must not open either.
+      final adminRows = (results[0] as List)
+          .cast<Map<String, dynamic>>()
+          .where((r) => (r['status'] ?? 'active') == 'active')
+          .toList();
       final residentRows = (results[1] as List).cast<Map<String, dynamic>>();
       final guardRow = results[2] as Map<String, dynamic>?;
 
