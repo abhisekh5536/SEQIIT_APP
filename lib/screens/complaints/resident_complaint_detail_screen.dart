@@ -5,6 +5,7 @@ import '../../models/complaint_models.dart';
 import '../../services/complaints_service.dart';
 import '../../theme/app_theme.dart';
 import 'widgets/complaint_timeline_view.dart';
+import '../../widgets/text_input_dialog.dart';
 
 class ResidentComplaintDetailScreen extends StatefulWidget {
   final String complaintId;
@@ -107,62 +108,18 @@ class _ResidentComplaintDetailScreenState extends State<ResidentComplaintDetailS
   }
 
   Future<void> _markNotFixed() async {
-    final noteController = TextEditingController();
-    final formKey = GlobalKey<FormState>();
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Issue Not Fixed?'),
-        content: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Please explain what is still unresolved. This will reopen the complaint and notify the society administration.',
-                style: TextStyle(fontSize: 13),
-              ),
-              const SizedBox(height: 14),
-              TextFormField(
-                controller: noteController,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  hintText: 'e.g. The leak started again this morning...',
-                  border: OutlineInputBorder(),
-                ),
-                validator: (val) {
-                  if (val == null || val.trim().isEmpty) {
-                    return 'Please enter a reason';
-                  }
-                  return null;
-                },
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () {
-              if (formKey.currentState!.validate()) {
-                Navigator.pop(ctx, true);
-              }
-            },
-            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFDC2626)),
-            child: const Text('Reopen Complaint'),
-          ),
-        ],
-      ),
+    final reason = await showTextInputDialog(
+      context,
+      title: 'Issue Not Fixed?',
+      message:
+          'Please explain what is still unresolved. This will reopen the complaint and notify the society administration.',
+      hint: 'e.g. The leak started again this morning...',
+      maxLines: 3,
+      confirmLabel: 'Reopen Complaint',
+      confirmColor: const Color(0xFFDC2626),
+      requiredMessage: 'Please enter a reason',
     );
-
-    // Read before disposing — the controller belongs to the dialog, which
-    // has now closed, and leaking one per invocation adds up.
-    final reason = noteController.text.trim();
-    noteController.dispose();
-
-    if (confirmed != true) return;
+    if (reason == null) return;
 
     setState(() => _processingAction = true);
     HapticFeedback.mediumImpact();

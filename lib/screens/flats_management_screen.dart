@@ -7,6 +7,7 @@ import '../models/society_models.dart';
 import '../services/app_session.dart';
 import '../theme/app_theme.dart';
 import '../widgets/flat_edit_bottom_sheet.dart';
+import '../widgets/text_input_dialog.dart';
 
 /// Screen for managing society architecture: Blocks/Towers -> Floors -> Flats.
 /// Allows viewing, filtering, editing flat parameters, and adding new units.
@@ -463,82 +464,65 @@ class _FlatsManagementScreenState extends State<FlatsManagementScreen> {
     );
   }
 
-  void _onAddNewBlock() {
-    final controller = TextEditingController();
-    // The dialog owns this controller for its lifetime; dispose once the
-    // route is gone rather than leaking one per invocation.
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Add Building / Tower Block'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(
-            hintText: 'e.g. Tower C or Wing 3',
-            labelText: 'Block Name',
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          FilledButton(
-            onPressed: () async {
-              final name = controller.text.trim();
-              if (name.isEmpty) return;
-              Navigator.pop(ctx);
-              final session = AppSession.instance;
-              final societyId = session.societyId;
-              if (societyId == null || societyId.isEmpty) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                          'No society linked to this account — cannot create a block.'),
-                    ),
-                  );
-                }
-                return;
-              }
-              {
-                try {
-                  final client = Supabase.instance.client;
-                  final res = await client.from('blocks').insert({
-                    'society_id': societyId,
-                    'name': name,
-                  }).select().single();
-                  final newId = res['id']?.toString() ?? '';
-                  _blockIdToName[newId] = name;
-                  _blockNameToId[name] = newId;
-                  await _loadUnits();
-                  if (mounted) {
-                    setState(() => _selectedBlock = name);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Block "$name" created in database')),
-                    );
-                  }
-                  return;
-                } catch (e) {
-                  debugPrint('Error creating block in DB: $e');
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Failed to create block in database: $e')),
-                    );
-                  }
-                }
-              }
+  Future<void> _onAddNewBlock() async {
+    final name = await showTextInputDialog(
+      context,
+      title: 'Add Building / Tower Block',
+      label: 'Block Name',
+      hint: 'e.g. Tower C or Wing 3',
+      confirmLabel: 'Add Block',
+      textCapitalization: TextCapitalization.words,
+      requiredMessage: 'Enter a block name',
+    );
+    if (name == null) return;
 
-              // No local fallback on purpose.
-              //
-              // Adding the block to in-memory state after the insert failed
-              // showed the admin a block that does not exist in the database.
-              // Flats then got created against a block id that was never
-              // there. The error above is the whole outcome.
-            },
-            child: const Text('Add Block'),
+    final session = AppSession.instance;
+    final societyId = session.societyId;
+    if (societyId == null || societyId.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+                'No society linked to this account — cannot create a block.'),
           ),
-        ],
-      ),
-    ).whenComplete(controller.dispose);
+        );
+      }
+      return;
+    }
+    {
+      try {
+        final client = Supabase.instance.client;
+        final res = await client.from('blocks').insert({
+          'society_id': societyId,
+          'name': name,
+        }).select().single();
+        final newId = res['id']?.toString() ?? '';
+        _blockIdToName[newId] = name;
+        _blockNameToId[name] = newId;
+        await _loadUnits();
+        if (mounted) {
+          setState(() => _selectedBlock = name);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Block "$name" created in database')),
+          );
+        }
+        return;
+      } catch (e) {
+        debugPrint('Error creating block in DB: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to create block in database: $e')),
+          );
+        }
+      }
+    }
+
+    // No local fallback on purpose.
+    //
+    // Adding the block to in-memory state after the insert failed
+    // showed the admin a block that does not exist in the database.
+    // Flats then got created against a block id that was never
+    // there. The error above is the whole outcome.
   }
 
   // ── Layout ──────────────────────────────────────────────────────────────

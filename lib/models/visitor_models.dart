@@ -125,6 +125,10 @@ class VisitorRecord {
 
   final String? approvedBy;
   final DateTime? approvedAt;
+
+  /// 'guard_call' when the gate recorded a yes the resident gave on the
+  /// phone (migration 18). Null for approvals made in the app.
+  final String? approvedVia;
   final String? deniedBy;
   final DateTime? deniedAt;
   final String? deniedReason;
@@ -166,6 +170,7 @@ class VisitorRecord {
     this.isPrivate = false,
     this.approvedBy,
     this.approvedAt,
+    this.approvedVia,
     this.deniedBy,
     this.deniedAt,
     this.deniedReason,
@@ -190,6 +195,8 @@ class VisitorRecord {
   bool get isCheckedOut => status == VisitorStatus.checkedOut;
   bool get isCancelled => status == VisitorStatus.cancelled;
   bool get isExpired => status == VisitorStatus.expired;
+
+  bool get isApprovedOnCall => approvedVia == 'guard_call';
 
   bool get canCancel => isPreApproved && isApproved;
   bool get canCheckIn => isApproved;
@@ -289,6 +296,7 @@ class VisitorRecord {
       isPrivate: m['is_private'] == true,
       approvedBy: m['approved_by']?.toString(),
       approvedAt: parseDtNullable(m['approved_at']),
+      approvedVia: m['approved_via']?.toString(),
       deniedBy: m['denied_by']?.toString(),
       deniedAt: parseDtNullable(m['denied_at']),
       deniedReason: m['denied_reason']?.toString(),

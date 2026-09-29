@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../../models/visitor_models.dart';
 import '../../services/app_session.dart';
+import '../../services/guard_service.dart';
 import '../../services/visitors_service.dart';
 import '../../theme/app_theme.dart';
 import 'widgets/visitor_card.dart';
@@ -24,6 +25,21 @@ class _VisitorDetailScreenState extends State<VisitorDetailScreen> {
   List<VisitorStatusHistoryRecord> _history = [];
   List<VisitorGroupMember> _groupMembers = [];
   bool _loading = true;
+  bool _gateBusy = false;
+
+  /// Approve / deny belongs to the people who live in the flat. The server
+  /// enforces this (respond_to_visitor_request); hiding the buttons for
+  /// everyone else stops a guard or admin tapping into a refusal.
+  bool get _canRespond {
+    final v = _visitor;
+    if (v == null || !v.isPending || !v.isGateRequest) return false;
+    return AppSession.instance.myResidences
+        .any((r) => r.flatId == v.flatId && r.isActive);
+  }
+
+  /// Guard and admin work the gate from this screen too.
+  bool get _worksGate =>
+      AppSession.instance.isGuard || AppSession.instance.isAdmin;
 
   @override
   void initState() {
@@ -105,14 +121,23 @@ class _VisitorDetailScreenState extends State<VisitorDetailScreen> {
                             children: [
                               _buildInfoCard(p, textTheme),
                               const SizedBox(height: 14),
+                              // The gate asks the visitor for the pass; it
+                              // does not read it off the record.
                               if (_visitor!.isPreApproved &&
-                                  _visitor!.approvalCode != null)
+                                  _visitor!.approvalCode != null &&
+                                  !AppSession.instance.isGuard)
                                 ...[
                                   _buildApprovalCodeCard(p, textTheme),
                                   const SizedBox(height: 14),
                                 ],
-                              if (_visitor!.isPending) ...[
+                              if (_canRespond) ...[
                                 _buildApprovalActions(p, textTheme),
+                                const SizedBox(height: 14),
+                              ],
+                              if (_worksGate &&
+                                  (_visitor!.canCheckIn ||
+                                      _visitor!.canCheckOut)) ...[
+                                _buildGateActions(p),
                                 const SizedBox(height: 14),
                               ],
                               if (_groupMembers.isNotEmpty) ...[
@@ -289,6 +314,62 @@ class _VisitorDetailScreenState extends State<VisitorDetailScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildGateActions(AppPaletteData p) {
+    final v = _visitor!;
+    final checkIn = v.canCheckIn;
+    return SizedBox(
+      width: double.infinity,
+      height: 52,
+      child: FilledButton.icon(
+        onPressed: _gateBusy ? null : () => _gateAction(checkIn),
+        icon: _gateBusy
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+              )
+            : Icon(checkIn ? Icons.login_rounded : Icons.logout_rounded),
+        label: Text(
+          checkIn ? 'Check in' : 'Check out',
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+        ),
+        style: FilledButton.styleFrom(
+          backgroundColor: checkIn ? p.success : p.danger,
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _gateAction(bool checkIn) async {
+    final v = _visitor!;
+    setState(() => _gateBusy = true);
+    try {
+      if (checkIn) {
+        await VisitorsService.instance.checkInVisitor(
+          v.id,
+          entryGate: GuardService.instance.currentGate?.name,
+        );
+      } else {
+        await VisitorsService.instance.checkOutVisitor(v.id);
+      }
+      HapticFeedback.mediumImpact();
+      await _loadDetail();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceFirst('Exception: ', '')),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _gateBusy = false);
+    }
   }
 
   Widget _buildApprovalCodeCard(AppPaletteData p, TextTheme textTheme) {

@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../models/vehicle_parking_models.dart';
 import '../../../services/app_session.dart';
+import '../../../services/guard_service.dart';
 import '../../../services/vehicles_parking_service.dart';
 import '../../../theme/app_theme.dart';
 import '../widgets/vehicle_parking_widgets.dart';
@@ -189,6 +190,22 @@ class _VehicleGateLookupScreenState extends State<VehicleGateLookupScreen> {
     }
   }
 
+  /// A guard is never given the owner's number (migration 17). The server
+  /// hands it out one logged call at a time.
+  Future<void> _callFlat(String flatId) async {
+    try {
+      final res = await GuardService.instance.callFlat(
+        flatId: flatId,
+        reason: 'vehicle',
+      );
+      if (!res.dialerOpened) {
+        _snack('Call logged, but this phone could not open the dialer', danger: true);
+      }
+    } catch (e) {
+      _snack(e.toString().replaceFirst('Exception: ', ''), danger: true);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final body = AnimatedBuilder(
@@ -236,6 +253,10 @@ class _VehicleGateLookupScreenState extends State<VehicleGateLookupScreen> {
                   isLogging: _isLogging,
                   onLog: _logEntry,
                   onCall: _call,
+                  onCallFlat: AppSession.instance.isGuard &&
+                          (_result!.flatId ?? '').isNotEmpty
+                      ? () => _callFlat(_result!.flatId!)
+                      : null,
                   onDismiss: () => setState(() => _result = null),
                 ),
               ],
@@ -416,6 +437,9 @@ class _VerdictCard extends StatelessWidget {
   final bool isLogging;
   final VoidCallback onLog;
   final ValueChanged<String> onCall;
+
+  /// Set for guards, who call through the logged RPC instead of [onCall].
+  final VoidCallback? onCallFlat;
   final VoidCallback onDismiss;
 
   const _VerdictCard({
@@ -424,6 +448,7 @@ class _VerdictCard extends StatelessWidget {
     required this.isLogging,
     required this.onLog,
     required this.onCall,
+    this.onCallFlat,
     required this.onDismiss,
   });
 
@@ -482,7 +507,23 @@ class _VerdictCard extends StatelessWidget {
                       result.slotNumber != null
                           ? 'Bay ${result.slotNumber}'
                           : 'No bay allotted'),
-                  if (result.residentPhone != null &&
+                  if (onCallFlat != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: OutlinedButton.icon(
+                        onPressed: onCallFlat,
+                        icon: const Icon(Icons.call_outlined, size: 16),
+                        label: const Text('Call flat',
+                            style: TextStyle(fontSize: 13)),
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size(0, 40),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+                    )
+                  else if (result.residentPhone != null &&
                       result.residentPhone!.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(top: 8),

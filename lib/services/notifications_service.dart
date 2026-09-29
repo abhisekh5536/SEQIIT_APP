@@ -231,6 +231,10 @@ class NotificationsService extends ChangeNotifier {
     DateTime? cutoff,
   ) async {
     final List<AppNotification> list = [];
+    // A guard's notifications are all real rows (target_role 'guard').
+    // Synthesising from complaints and flats would only fire queries that
+    // RLS answers with nothing.
+    if (session.isGuard) return list;
     final societyId = session.societyId!;
     final isAdmin = session.isAdmin;
     final myResidences = session.myResidences;
