@@ -6,10 +6,19 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/notification_model.dart';
+import 'app_lifecycle_service.dart';
 import 'app_session.dart';
 
 class NotificationsService extends ChangeNotifier {
-  NotificationsService._();
+  NotificationsService._() {
+    // Alerts written while the app was in the background (and its socket
+    // closed) should be in the bell the moment the user is back.
+    AppLifecycleService.instance.onResumed.listen((_) {
+      if (_client?.auth.currentUser != null) {
+        refreshSoon(delay: const Duration(milliseconds: 300));
+      }
+    });
+  }
   static final NotificationsService instance = NotificationsService._();
 
   SupabaseClient? get _client {
@@ -203,6 +212,53 @@ class NotificationsService extends ChangeNotifier {
     _locallyReadIds.retainWhere(live.contains);
     if (_locallyReadIds.length != before) {
       _persistLocalReadIds();
+    }
+  }
+
+  // ── Realtime ──────────────────────────────────────────────────
+  //
+  // Every module (notices, helpdesk, SOS, approvals, parking, facilities,
+  // visitors) records its alerts here, so one subscription keeps the bell
+  // and home badges live for all of them. RLS decides which rows reach
+  // this user, exactly as for the bell's own query.
+
+  RealtimeChannel? _channel;
+  String? _channelSocietyId;
+
+  void startLive(String societyId) {
+    final client = _client;
+    if (client == null || societyId.isEmpty) return;
+    if (_channel != null && _channelSocietyId == societyId) return;
+
+    stopLive();
+    _channelSocietyId = societyId;
+    _channel = client
+        .channel('public:notifications:$societyId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'notifications',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'society_id',
+            value: societyId,
+          ),
+          // A notice or SOS can write two rows at once (e.g. admins +
+          // guards); the short debounce folds them into one fetch.
+          callback: (_) =>
+              refreshSoon(delay: const Duration(milliseconds: 400)),
+        )
+        .subscribe();
+  }
+
+  void stopLive() {
+    final channel = _channel;
+    _channel = null;
+    _channelSocietyId = null;
+    if (channel != null) {
+      try {
+        _client?.removeChannel(channel);
+      } catch (_) {}
     }
   }
 

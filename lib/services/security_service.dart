@@ -4,10 +4,18 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/security_models.dart';
+import 'app_lifecycle_service.dart';
 import 'app_session.dart';
 
 class SecurityService extends ChangeNotifier {
-  SecurityService._();
+  SecurityService._() {
+    // An SOS raised while this phone was in the background never arrived
+    // over the (closed) socket; re-read the active list on return.
+    AppLifecycleService.instance.onResumed.listen((_) {
+      final societyId = _realtimeSocietyId;
+      if (societyId != null) refreshActiveAlerts(societyId);
+    });
+  }
   static final SecurityService instance = SecurityService._();
 
   SupabaseClient? get _safeClient {
@@ -31,6 +39,7 @@ class SecurityService extends ChangeNotifier {
   List<SosAlert> get activeSosAlerts => List.unmodifiable(_activeSosAlerts);
 
   bool _initializedRealtime = false;
+  String? _realtimeSocietyId;
 
   /// The SOS RPCs answer a refusal with `{success: false, error}` rather
   /// than raising, so an unchecked call reported "acknowledged" to the
@@ -649,6 +658,7 @@ class SecurityService extends ChangeNotifier {
   void initRealtime(String societyId) {
     if (_initializedRealtime || _safeClient == null) return;
     _initializedRealtime = true;
+    _realtimeSocietyId = societyId;
 
     refreshActiveAlerts(societyId);
 

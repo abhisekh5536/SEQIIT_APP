@@ -37,6 +37,7 @@ class _AdminVisitorsDashboardState extends State<AdminVisitorsDashboard> {
   final _searchCtrl = TextEditingController();
 
   StreamSubscription<VisitorLiveEvent>? _liveSub;
+  StreamSubscription<void>? _resyncSub;
   Timer? _searchDebounce;
 
   /// Visitors that just arrived live; their cards slide in once.
@@ -54,6 +55,7 @@ class _AdminVisitorsDashboardState extends State<AdminVisitorsDashboard> {
   @override
   void dispose() {
     _liveSub?.cancel();
+    _resyncSub?.cancel();
     _searchDebounce?.cancel();
     _freshClear?.cancel();
     VisitorsService.instance.removeListener(_onServiceChanged);
@@ -70,6 +72,9 @@ class _AdminVisitorsDashboardState extends State<AdminVisitorsDashboard> {
     VisitorsService.instance.initRealtime(societyId);
     VisitorsService.instance.addListener(_onServiceChanged);
     _liveSub = VisitorsService.instance.onVisitorEvent.listen(_onLiveEvent);
+    // Back from the background: catch up on what happened meanwhile.
+    _resyncSub = VisitorsService.instance.onResync
+        .listen((_) => _loadVisitors(silent: true));
   }
 
   void _onServiceChanged() {

@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'app_session.dart';
 import 'local_push_service.dart';
+import 'notifications_service.dart';
 
 /// Server push via Firebase Cloud Messaging.
 ///
@@ -39,7 +40,13 @@ class PushMessagingService {
     }
 
     // In the foreground Android does not draw FCM notifications itself.
-    FirebaseMessaging.onMessage.listen(LocalPushService.instance.showRemote);
+    FirebaseMessaging.onMessage.listen((message) {
+      LocalPushService.instance.showRemote(message);
+      // Belt and braces for the bell: if the realtime socket is down, the
+      // push itself still says something new arrived.
+      NotificationsService.instance
+          .refreshSoon(delay: const Duration(milliseconds: 400));
+    });
 
     // Tapped while the app was in the background.
     FirebaseMessaging.onMessageOpenedApp.listen(
