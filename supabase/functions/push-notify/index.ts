@@ -40,6 +40,7 @@ function channelFor(type: string): string {
   if (type.startsWith("sos")) return "security";
   if (type.startsWith("join_request")) return "approvals";
   if (type.startsWith("parking")) return "parking";
+  if (type.startsWith("facility")) return "facilities";
   return "general";
 }
 
