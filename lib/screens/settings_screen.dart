@@ -368,8 +368,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ],
                     _divider(p),
                     _infoRow(context, p, 'App Version', '1.0.0'),
-                    _divider(p),
-                    _infoRow(context, p, 'Platform', 'Flutter · Supabase'),
                   ],
                 ),
               ],

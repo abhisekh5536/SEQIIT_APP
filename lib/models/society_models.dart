@@ -21,10 +21,14 @@ class QuickAction {
   final IconData icon;
   final String route;
 
+  /// Renders the action in the emergency (red) treatment.
+  final bool isEmergency;
+
   const QuickAction({
     required this.label,
     required this.icon,
     required this.route,
+    this.isEmergency = false,
   });
 }
 

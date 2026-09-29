@@ -8,6 +8,7 @@ import '../services/app_session.dart';
 import '../theme/app_theme.dart';
 import '../widgets/home_widgets.dart';
 import '../widgets/resident_widgets.dart';
+import '../widgets/searchable_picker.dart';
 import 'documents/resident_documents_screen.dart';
 
 enum _StatusFilter { all, owner, tenant, family, vacant }
@@ -529,66 +530,69 @@ class _DirectoryScreenState extends State<DirectoryScreen> {
     final p = AppTheme.paletteFor(Theme.of(context).brightness);
     final textTheme = Theme.of(context).textTheme;
 
-    return Row(
+    // Toolbar row (back · society · actions) sits above a full-width title so
+    // the heading never gets squeezed between the buttons.
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (widget.showBack) ...[
-          IconButton(
-            onPressed: () => Navigator.pop(context),
-            icon: const Icon(Icons.arrow_back_rounded),
-            style: IconButton.styleFrom(backgroundColor: p.card, side: BorderSide(color: p.hairline)),
-          ),
-          const SizedBox(width: 12),
-        ],
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
+        Row(
+          children: [
+            if (widget.showBack) ...[
+              IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.arrow_back_rounded),
+                style: IconButton.styleFrom(backgroundColor: p.card, side: BorderSide(color: p.hairline)),
+              ),
+              const SizedBox(width: 12),
+            ],
+            Expanded(
+              child: Text(
                 AppSession.instance.societyName.toUpperCase(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: textTheme.labelSmall?.copyWith(color: p.primary, letterSpacing: 1.6, fontWeight: FontWeight.w800),
               ),
-              const SizedBox(height: 6),
-              Text('Residents & Flats', style: textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
-              const SizedBox(height: 2),
-              Text(
-                isAdmin ? 'Complete register of units and their occupants' : 'Directory — name & flat only (limited view)',
-                style: textTheme.bodySmall,
+            ),
+            const SizedBox(width: 8),
+            if (isAdmin) ...[
+              IconButton(
+                onPressed: () => Navigator.pushNamed(context, '/flats-management'),
+                icon: const Icon(Icons.domain_outlined, size: 20),
+                tooltip: 'Manage Flats & Blocks',
+                style: IconButton.styleFrom(
+                  backgroundColor: p.card,
+                  side: BorderSide(color: p.hairline),
+                ),
               ),
+              const SizedBox(width: 8),
+              _AddMemberButton(onPressed: () => _openAddMember(context)),
             ],
-          ),
+            if (!isAdmin)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: p.cardMuted,
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: p.hairline),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.visibility_outlined, size: 14, color: p.textTertiary),
+                    const SizedBox(width: 4),
+                    Text('View only', style: textTheme.labelSmall?.copyWith(fontSize: 10)),
+                  ],
+                ),
+              ),
+          ],
         ),
-        const SizedBox(width: 12),
-        if (isAdmin) ...[
-          IconButton(
-            onPressed: () => Navigator.pushNamed(context, '/flats-management'),
-            icon: const Icon(Icons.domain_outlined, size: 20),
-            tooltip: 'Manage Flats & Blocks',
-            style: IconButton.styleFrom(
-              backgroundColor: p.card,
-              side: BorderSide(color: p.hairline),
-            ),
-          ),
-          const SizedBox(width: 8),
-          _AddMemberButton(onPressed: () => _openAddMember(context)),
-        ],
-        if (!isAdmin)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: p.cardMuted,
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: p.hairline),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.visibility_outlined, size: 14, color: p.textTertiary),
-                const SizedBox(width: 4),
-                Text('View only', style: textTheme.labelSmall?.copyWith(fontSize: 10)),
-              ],
-            ),
-          ),
+        const SizedBox(height: 14),
+        Text('Residents & Flats', style: textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+        const SizedBox(height: 4),
+        Text(
+          isAdmin ? 'Complete register of units and their occupants' : 'Directory — name & flat only (limited view)',
+          style: textTheme.bodySmall,
+        ),
       ],
     );
   }
@@ -1332,6 +1336,15 @@ class _AddMemberSheetState extends State<_AddMemberSheet> {
     return widget.flats.where((f) => f.blockId == _selectedBlockId).toList();
   }
 
+  String _flatSubtitle(FlatInfo f) {
+    final residents = widget.flatResidentsCount[f.flatNumber] ?? 0;
+    return [
+      'Floor ${f.floorNumber}',
+      if (f.type.trim().isNotEmpty) f.type.trim(),
+      if (residents > 0) '$residents resident${residents == 1 ? '' : 's'}',
+    ].join(' · ');
+  }
+
   @override
   void dispose() {
     _name.dispose();
@@ -1493,17 +1506,25 @@ class _AddMemberSheetState extends State<_AddMemberSheet> {
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       Text('Flat *', style: textTheme.labelMedium),
                       const SizedBox(height: 8),
-                      DropdownButtonFormField<String>(
-                        initialValue: _selectedFlatId,
-                        isExpanded: true,
-                        decoration: InputDecoration(hintText: filteredFlats.isEmpty ? 'No flats' : 'Choose flat'),
-                        items: [for (final f in filteredFlats) DropdownMenuItem(value: f.id, child: Text('${f.flatNumber} · ${f.type}${f.isOccupied ? '' : ' (vacant)'}', overflow: TextOverflow.ellipsis))],
+                      SearchablePickerField<String>(
+                        value: _selectedFlatId,
+                        sheetTitle: 'Select flat',
+                        hintText: filteredFlats.isEmpty ? 'No flats' : 'Choose flat',
+                        searchHint: 'Search flat number, floor or type…',
+                        emptyText: 'No matching flats',
+                        options: [
+                          for (final f in filteredFlats)
+                            PickerOption(
+                              value: f.id,
+                              label: f.flatNumber,
+                              subtitle: _flatSubtitle(f),
+                              tag: f.isOccupied ? null : 'Vacant',
+                            ),
+                        ],
                         onChanged: (v) => setState(() {
                           _selectedFlatId = v;
-                          if (v != null) {
-                            final flat = filteredFlats.firstWhere((x) => x.id == v);
-                            _isPrimary = (widget.flatResidentsCount[flat.flatNumber] ?? 0) == 0;
-                          }
+                          final flat = filteredFlats.firstWhere((x) => x.id == v);
+                          _isPrimary = (widget.flatResidentsCount[flat.flatNumber] ?? 0) == 0;
                         }),
                       ),
                     ]),
@@ -1656,12 +1677,22 @@ class _MockAddMemberSheetState extends State<_MockAddMemberSheet> {
             const SizedBox(height: 16),
             Text('Flat', style: textTheme.labelMedium),
             const SizedBox(height: 8),
-            DropdownButtonFormField<ResidenceUnit>(
-              initialValue: _unit,
-              isExpanded: true,
-              decoration: const InputDecoration(hintText: 'Choose a flat'),
-              items: [for (final unit in widget.units) DropdownMenuItem(value: unit, child: Text('${unit.number} · ${unit.bhk} BHK${unit.isOccupied ? '' : ' (vacant)'}', overflow: TextOverflow.ellipsis))],
-              onChanged: (u) { if (u != null) setState(() => _unit = u); },
+            SearchablePickerField<ResidenceUnit>(
+              value: _unit,
+              sheetTitle: 'Select flat',
+              hintText: 'Choose a flat',
+              searchHint: 'Search flat number or tower…',
+              emptyText: 'No matching flats',
+              options: [
+                for (final unit in widget.units)
+                  PickerOption(
+                    value: unit,
+                    label: unit.number,
+                    subtitle: 'Tower ${unit.tower} · Floor ${unit.floor} · ${unit.bhk} BHK',
+                    tag: unit.isOccupied ? null : 'Vacant',
+                  ),
+              ],
+              onChanged: (u) => setState(() => _unit = u),
             ),
             const SizedBox(height: 16),
             Text('Phone', style: textTheme.labelMedium),

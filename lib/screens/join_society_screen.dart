@@ -6,6 +6,7 @@ import '../models/db_models.dart';
 import '../services/app_session.dart';
 import '../services/push_messaging_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/searchable_picker.dart';
 
 class JoinSocietyScreen extends StatefulWidget {
   const JoinSocietyScreen({super.key});
@@ -444,57 +445,30 @@ class _JoinSocietyScreenState extends State<JoinSocietyScreen> {
       );
     }
 
-    return Container(
-      decoration: BoxDecoration(
-        color: p.card,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: p.hairline),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<SocietyInfo>(
-          isExpanded: true,
-          value: _selectedSociety,
-          hint: Text(
-            'Select your society...',
-            style: TextStyle(color: p.textTertiary, fontSize: 15),
-          ),
-          dropdownColor: p.card,
-          items: _societies.map((s) {
-            return DropdownMenuItem<SocietyInfo>(
-              value: s,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    s.name,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      color: p.textPrimary,
-                      fontSize: 15,
-                    ),
-                  ),
-                  if (s.locationSubtitle.isNotEmpty)
-                    Text(
-                      s.locationSubtitle,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: p.textTertiary,
-                      ),
-                    ),
-                ],
-              ),
-            );
-          }).toList(),
-          onChanged: (SocietyInfo? val) {
-            if (val != null && val.id != _selectedSociety?.id) {
-              setState(() => _selectedSociety = val);
-              _loadFlatsForSociety(val.id);
-            }
-          },
-        ),
-      ),
+    return _pickerTile(
+      p,
+      title: _selectedSociety?.name,
+      subtitle: _selectedSociety?.locationSubtitle,
+      hint: 'Select your society...',
+      onTap: () async {
+        final picked = await showSearchablePicker<SocietyInfo>(
+          context: context,
+          title: 'Select society',
+          icon: Icons.location_city_rounded,
+          searchHint: 'Search society name or city…',
+          emptyText: 'No matching societies',
+          selected: _selectedSociety,
+          options: [
+            for (final s in _societies)
+              PickerOption(value: s, label: s.name, subtitle: s.locationSubtitle),
+          ],
+        );
+        final val = picked?.value;
+        if (val != null && val.id != _selectedSociety?.id) {
+          setState(() => _selectedSociety = val);
+          _loadFlatsForSociety(val.id);
+        }
+      },
     );
   }
 
@@ -553,51 +527,82 @@ class _JoinSocietyScreenState extends State<JoinSocietyScreen> {
       );
     }
 
-    return Container(
-      decoration: BoxDecoration(
-        color: p.card,
+    return _pickerTile(
+      p,
+      title: _selectedFlat?.displayTitle,
+      subtitle: _selectedFlat?.displaySubtitle,
+      hint: 'Select your vacant flat / unit...',
+      onTap: () async {
+        final picked = await showSearchablePicker<VacantFlatOption>(
+          context: context,
+          title: 'Select vacant flat',
+          searchHint: 'Search flat number or block…',
+          emptyText: 'No matching vacant flats',
+          selected: _selectedFlat,
+          options: [
+            for (final f in _vacantFlats)
+              PickerOption(value: f, label: f.displayTitle, subtitle: f.displaySubtitle),
+          ],
+        );
+        if (picked != null) setState(() => _selectedFlat = picked.value);
+      },
+    );
+  }
+
+  /// Tappable field that opens a searchable sheet — societies and flats can
+  /// run into the hundreds, far too many to scroll through in a dropdown.
+  Widget _pickerTile(
+    AppPaletteData p, {
+    required String? title,
+    required String? subtitle,
+    required String hint,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: p.card,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: p.hairline),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<VacantFlatOption>(
-          isExpanded: true,
-          value: _selectedFlat,
-          hint: Text(
-            'Select your vacant flat / unit...',
-            style: TextStyle(color: p.textTertiary, fontSize: 15),
+        onTap: () {
+          FocusScope.of(context).unfocus();
+          onTap();
+        },
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 56),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: p.hairline),
           ),
-          dropdownColor: p.card,
-          items: _vacantFlats.map((flat) {
-            return DropdownMenuItem<VacantFlatOption>(
-              value: flat,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    flat.displayTitle,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      color: p.textPrimary,
-                      fontSize: 15,
-                    ),
-                  ),
-                  Text(
-                    flat.displaySubtitle,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: p.textTertiary,
-                    ),
-                  ),
-                ],
+          child: Row(
+            children: [
+              Expanded(
+                child: title == null
+                    ? Text(hint, style: TextStyle(color: p.textTertiary, fontSize: 15))
+                    : Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontWeight: FontWeight.w600, color: p.textPrimary, fontSize: 15),
+                          ),
+                          if (subtitle != null && subtitle.isNotEmpty)
+                            Text(
+                              subtitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(fontSize: 12, color: p.textTertiary),
+                            ),
+                        ],
+                      ),
               ),
-            );
-          }).toList(),
-          onChanged: (VacantFlatOption? val) {
-            setState(() => _selectedFlat = val);
-          },
+              const SizedBox(width: 8),
+              Icon(Icons.search_rounded, size: 20, color: p.textTertiary),
+            ],
+          ),
         ),
       ),
     );
