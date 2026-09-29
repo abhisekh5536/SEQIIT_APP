@@ -190,7 +190,7 @@ class _SocietyAppState extends State<SocietyApp> {
                   child: CreateEditNoticeScreen(),
                 ),
             '/my-flat': (context) =>
-                const _NotForGuards(child: MyFlatScreen()),
+                const _NotForGuards(child: MyFlatScreen(showBack: true)),
             // A guard has no flat or household; their page is the gate one.
             '/profile': (context) => AppSession.instance.isGuard
                 ? GuardProfileScreen(

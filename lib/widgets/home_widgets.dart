@@ -408,20 +408,31 @@ class QuickActionRail extends StatelessWidget {
                           width: 38,
                           height: 38,
                           decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [
-                                p.primary.withValues(alpha: 0.16),
-                                p.secondary.withValues(alpha: 0.16),
-                              ],
-                            ),
+                            gradient: actions[i].isEmergency
+                                ? const LinearGradient(
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                    colors: [
+                                      Color(0xFFD32F2F),
+                                      Color(0xFFC2185B),
+                                    ],
+                                  )
+                                : LinearGradient(
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                    colors: [
+                                      p.primary.withValues(alpha: 0.16),
+                                      p.secondary.withValues(alpha: 0.16),
+                                    ],
+                                  ),
                             borderRadius: BorderRadius.circular(12.5),
                           ),
                           child: Icon(
                             actions[i].icon,
                             size: 19,
-                            color: p.primary,
+                            color: actions[i].isEmergency
+                                ? Colors.white
+                                : p.primary,
                           ),
                         ),
                         const SizedBox(height: 7),
@@ -430,9 +441,13 @@ class QuickActionRail extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: textTheme.labelSmall?.copyWith(
-                            color: p.textSecondary,
+                            color: actions[i].isEmergency
+                                ? const Color(0xFFD32F2F)
+                                : p.textSecondary,
                             fontSize: 11.5,
-                            fontWeight: FontWeight.w600,
+                            fontWeight: actions[i].isEmergency
+                                ? FontWeight.w800
+                                : FontWeight.w600,
                             letterSpacing: 0.1,
                           ),
                         ),

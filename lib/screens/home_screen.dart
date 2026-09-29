@@ -21,6 +21,7 @@ import 'join_society_screen.dart';
 import 'notices/notice_detail_screen.dart';
 import 'request_status_screen.dart';
 import 'security/widgets/admin_sos_alert_dialog.dart';
+import 'security/widgets/sos_dialog.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -30,6 +31,10 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  /// Sentinel route: the SOS quick action opens the emergency sheet in place
+  /// instead of navigating, so help is one tap away.
+  static const _sosAction = 'sos';
+
   static const _quickActions = [
     QuickAction(
       label: 'Dues',
@@ -37,9 +42,10 @@ class _HomeScreenState extends State<HomeScreen> {
       route: '/maintenance',
     ),
     QuickAction(
-      label: 'Amenity',
-      icon: Icons.event_seat_rounded,
-      route: '/facilities',
+      label: 'SOS',
+      icon: Icons.crisis_alert_rounded,
+      route: _sosAction,
+      isEmergency: true,
     ),
     QuickAction(
       label: 'Guests',
@@ -514,8 +520,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   sliver: SliverToBoxAdapter(
                     child: QuickActionRail(
                       actions: _quickActions,
-                      onSelected: (action) =>
-                          Navigator.pushNamed(context, action.route),
+                      onSelected: _onQuickAction,
                     ),
                   ),
                 ),
@@ -577,6 +582,21 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       },
     );
+  }
+
+  void _onQuickAction(QuickAction action) {
+    if (action.route != _sosAction) {
+      Navigator.pushNamed(context, action.route);
+      return;
+    }
+    HapticFeedback.heavyImpact();
+    // SOS is raised against a flat; accounts without one (e.g. admins not
+    // living in the society) go to the Security hub instead.
+    if (AppSession.instance.myResidences.isEmpty) {
+      Navigator.pushNamed(context, '/security');
+      return;
+    }
+    SosDialog.show(context);
   }
 
   /// Slides for the hero carousel. The first is always the balance card;

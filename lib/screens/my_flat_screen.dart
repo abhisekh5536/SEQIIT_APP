@@ -6,7 +6,12 @@ import '../services/app_session.dart';
 import '../theme/app_theme.dart';
 
 class MyFlatScreen extends StatefulWidget {
-  const MyFlatScreen({super.key});
+  /// Only true when pushed as its own route (`/my-flat`). As a bottom-nav tab
+  /// inside [MainShell] there is nothing to pop back to — popping would remove
+  /// the shell itself and leave a black screen.
+  final bool showBack;
+
+  const MyFlatScreen({super.key, this.showBack = false});
 
   @override
   State<MyFlatScreen> createState() => _MyFlatScreenState();
@@ -71,15 +76,18 @@ class _MyFlatScreenState extends State<MyFlatScreen> {
               children: [
                 Row(
                   children: [
-                    IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.arrow_back_rounded),
-                      style: IconButton.styleFrom(
-                        backgroundColor: p.card,
-                        side: BorderSide(color: p.hairline),
+                    if (widget.showBack) ...[
+                      IconButton(
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.arrow_back_rounded),
+                        style: IconButton.styleFrom(
+                          backgroundColor: p.card,
+                          side: BorderSide(color: p.hairline),
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
+                      const SizedBox(width: 8),
+                    ] else
+                      const SizedBox(width: 4),
                     Text(
                       'My Flat',
                       style: textTheme.headlineSmall?.copyWith(
