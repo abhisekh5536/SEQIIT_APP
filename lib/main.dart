@@ -28,6 +28,7 @@ import 'screens/notifications_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/security/security_root_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/splash_screen.dart';
 import 'screens/vehicles/guard/vehicle_gate_lookup_screen.dart';
 import 'screens/vehicles/vehicles_parking_root_screen.dart';
 import 'screens/visitors/visitors_root_screen.dart';
@@ -51,6 +52,19 @@ Future<void> main() async {
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
+  // Paint the loading screen right away; the start-up work below used to run
+  // before runApp, leaving users on a blank (black in dark mode) window.
+  runApp(
+    AppBootstrap<ThemeController>(
+      initialize: _initializeApp,
+      builder: (themeController) =>
+          SocietyApp(themeController: themeController),
+    ),
+  );
+}
+
+/// Every step is safe to repeat, so the splash's "Try again" can re-run it.
+Future<ThemeController> _initializeApp() async {
   await dotenv.load(fileName: '.env');
   await Supabase.initialize(
     url: dotenv.env['SUPABASE_URL']!.trim(),
@@ -59,7 +73,7 @@ Future<void> main() async {
   final themeController = await ThemeController.load();
   await LocalPushService.instance.init();
   await PushMessagingService.instance.init();
-  runApp(SocietyApp(themeController: themeController));
+  return themeController;
 }
 
 class SocietyApp extends StatefulWidget {
