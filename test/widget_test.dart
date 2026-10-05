@@ -29,8 +29,14 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('MY SOCIETY'), findsOneWidget);
-    expect(find.textContaining('Resident'), findsOneWidget);
-    expect(find.textContaining('₹4,850'), findsWidgets);
+    // Header greeting + the My Flat card's role pill.
+    expect(find.textContaining('Resident'), findsWidgets);
+    // No sample dues on the home carousel until the maintenance module
+    // supplies real ones; the first card is the (live) My Flat card.
+    expect(find.textContaining('₹4,850'), findsNothing);
+    expect(find.text('My Flat'), findsWidgets);
+    expect(find.text('Security desk'), findsNothing,
+        reason: 'only the first slide is built; security desk is second');
     expect(find.text('Visitors today'), findsOneWidget);
     expect(find.text('Notices'), findsWidgets);
 
