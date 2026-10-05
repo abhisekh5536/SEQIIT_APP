@@ -342,6 +342,31 @@ class VisitorsService extends ChangeNotifier {
     }
   }
 
+  /// The resident's next usable guest pass: a pre-approval that is approved
+  /// and not yet expired, soonest first. Null when there is none — the home
+  /// carousel only shows the pass card while one exists.
+  Future<VisitorRecord?> fetchNextGuestPass() async {
+    if (_safeClient == null) return null;
+    final flatIds = AppSession.instance.myResidences
+        .map((r) => r.flatId)
+        .toSet()
+        .toList();
+    if (flatIds.isEmpty) return null;
+
+    final now = DateTime.now().toUtc().toIso8601String();
+    final res = await _client
+        .from('visitors')
+        .select(_selectBasicJoins)
+        .inFilter('flat_id', flatIds)
+        .eq('entry_type', 'pre_approved')
+        .eq('status', 'approved')
+        .or('valid_until.is.null,valid_until.gte.$now')
+        .order('valid_from', ascending: true, nullsFirst: false)
+        .limit(1);
+    final list = (res as List).cast<Map<String, dynamic>>();
+    return list.isEmpty ? null : VisitorRecord.fromMap(list.first);
+  }
+
   // ── Fetch: Society visitors (admin) ───────────────────────────
   Future<List<VisitorRecord>> fetchSocietyVisitors({
     String? statusFilter,

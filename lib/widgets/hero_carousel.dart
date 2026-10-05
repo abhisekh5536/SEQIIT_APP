@@ -197,6 +197,8 @@ class _Pill extends StatelessWidget {
       ),
       child: Text(
         label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
         style: (style ?? Theme.of(context).textTheme.labelMedium)?.copyWith(
           color: foreground,
           fontWeight: FontWeight.w700,
@@ -213,7 +215,16 @@ class _GradientButton extends StatelessWidget {
   final VoidCallback? onPressed;
   final IconData? icon;
 
-  const _GradientButton({required this.label, this.onPressed, this.icon});
+  /// Label colour; defaults to the brand hero colour. Cards with their own
+  /// gradient pass their hue so the button matches the card.
+  final Color? foreground;
+
+  const _GradientButton({
+    required this.label,
+    this.onPressed,
+    this.icon,
+    this.foreground,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -223,7 +234,7 @@ class _GradientButton extends StatelessWidget {
       onPressed: onPressed,
       style: ElevatedButton.styleFrom(
         backgroundColor: Colors.white,
-        foregroundColor: p.heroStart,
+        foregroundColor: foreground ?? p.heroStart,
         minimumSize: const Size(0, 46),
         padding: const EdgeInsets.symmetric(horizontal: 18),
         elevation: 4,
@@ -413,16 +424,20 @@ class HeroTicketCard extends StatelessWidget {
                   letterSpacing: 1.6,
                 ),
               ),
+              const SizedBox(width: 8),
               const Spacer(),
-              _Pill(
-                label: dayLabel.toUpperCase(),
-                background: p.secondary.withValues(alpha: 0.16),
-                foreground: p.secondary,
-                style: textTheme.labelSmall,
+              Flexible(
+                flex: 6,
+                child: _Pill(
+                  label: dayLabel.toUpperCase(),
+                  background: p.secondary.withValues(alpha: 0.16),
+                  foreground: p.secondary,
+                  style: textTheme.labelSmall,
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
@@ -474,7 +489,7 @@ class HeroTicketCard extends StatelessWidget {
               fontWeight: FontWeight.w700,
             ),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           // Perforation: dashed tear-line with punched side notches that bite
           // in from the card edges — the detail that sells "physical ticket".
           SizedBox(
@@ -770,29 +785,32 @@ class _StatusStepper extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
+    final last = steps.length - 1;
 
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    // Dots and connectors on one row, labels on another in equal columns:
+    // first label left-aligned under the first dot, last right-aligned under
+    // the last, the rest centred. Labels can then ellipsize instead of
+    // pushing the row wider than a narrow card.
+    return Column(
       children: [
-        for (var i = 0; i < steps.length; i++) ...[
-          if (i > 0)
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.only(top: 5, left: 3, right: 3),
-                child: Container(
-                  height: 2.5,
-                  decoration: BoxDecoration(
-                    color: i <= current
-                        ? activeColor.withValues(alpha: 0.65)
-                        : idleColor.withValues(alpha: 0.30),
-                    borderRadius: BorderRadius.circular(2),
+        Row(
+          children: [
+            for (var i = 0; i < steps.length; i++) ...[
+              if (i > 0)
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 3),
+                    child: Container(
+                      height: 2.5,
+                      decoration: BoxDecoration(
+                        color: i <= current
+                            ? activeColor.withValues(alpha: 0.65)
+                            : idleColor.withValues(alpha: 0.30),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ),
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
               Container(
                 width: 13,
                 height: 13,
@@ -814,18 +832,33 @@ class _StatusStepper extends StatelessWidget {
                       : null,
                 ),
               ),
-              const SizedBox(height: 6),
-              Text(
-                steps[i],
-                style: textTheme.labelSmall?.copyWith(
-                  fontSize: 10,
-                  color: i <= current ? activeColor : idleColor,
-                  fontWeight: i == current ? FontWeight.w800 : FontWeight.w500,
+            ],
+          ],
+        ),
+        const SizedBox(height: 6),
+        Row(
+          children: [
+            for (var i = 0; i < steps.length; i++)
+              Expanded(
+                child: Text(
+                  steps[i],
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: i == 0
+                      ? TextAlign.start
+                      : i == last
+                          ? TextAlign.end
+                          : TextAlign.center,
+                  style: textTheme.labelSmall?.copyWith(
+                    fontSize: 10,
+                    color: i <= current ? activeColor : idleColor,
+                    fontWeight:
+                        i == current ? FontWeight.w800 : FontWeight.w500,
+                  ),
                 ),
               ),
-            ],
-          ),
-        ],
+          ],
+        ),
       ],
     );
   }
@@ -873,18 +906,27 @@ class HeroStatusCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              _Pill(
-                label: pill,
-                background: accent.withValues(alpha: 0.13),
-                foreground: accent,
-                style: textTheme.labelSmall,
+              Flexible(
+                flex: 3,
+                child: _Pill(
+                  label: pill,
+                  background: accent.withValues(alpha: 0.13),
+                  foreground: accent,
+                  style: textTheme.labelSmall,
+                ),
               ),
-              const Spacer(),
-              _Pill(
-                label: steps[current],
-                background: accent.withValues(alpha: 0.13),
-                foreground: accent,
-                style: textTheme.labelSmall,
+              const SizedBox(width: 8),
+              Expanded(
+                flex: 2,
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: _Pill(
+                    label: steps[current],
+                    background: accent.withValues(alpha: 0.13),
+                    foreground: accent,
+                    style: textTheme.labelSmall,
+                  ),
+                ),
               ),
             ],
           ),
@@ -979,6 +1021,7 @@ class HeroNoticeCard extends StatelessWidget {
   final String snippet;
   final String meta;
   final VoidCallback onRead;
+  final String actionLabel;
 
   /// Whether to show the pinned marker. Only set it for notices that are
   /// actually pinned — a permanent pin icon reads as decoration, not signal.
@@ -992,6 +1035,7 @@ class HeroNoticeCard extends StatelessWidget {
     required this.snippet,
     required this.meta,
     required this.onRead,
+    this.actionLabel = 'Read',
     this.pinned = false,
   });
 
@@ -1068,13 +1112,16 @@ class HeroNoticeCard extends StatelessWidget {
                 color: Colors.white.withValues(alpha: 0.8),
               ),
               const SizedBox(width: 5),
-              Text(
-                meta,
-                style: textTheme.labelSmall?.copyWith(
-                  color: Colors.white.withValues(alpha: 0.8),
+              Expanded(
+                child: Text(
+                  meta,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: textTheme.labelSmall?.copyWith(
+                    color: Colors.white.withValues(alpha: 0.8),
+                  ),
                 ),
               ),
-              const Spacer(),
               TextButton.icon(
                 onPressed: onRead,
                 style: TextButton.styleFrom(
@@ -1082,8 +1129,354 @@ class HeroNoticeCard extends StatelessWidget {
                   minimumSize: const Size(0, 40),
                 ),
                 icon: const Icon(Icons.arrow_forward_rounded, size: 18),
-                label: const Text('Read'),
+                label: Text(actionLabel),
               ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One figure on a [HeroSummaryCard], e.g. "3 · Gates".
+class HeroStat {
+  final String value;
+  final String label;
+
+  const HeroStat(this.value, this.label);
+}
+
+/// Overview slide: a gradient card with a headline and a strip of live
+/// counts — used for "My flat / Society" and "Security desk".
+class HeroSummaryCard extends StatelessWidget {
+  final String pill;
+  final String title;
+  final String subtitle;
+  final List<HeroStat> stats;
+  final String actionLabel;
+  final IconData? actionIcon;
+  final VoidCallback onAction;
+  final String? secondaryActionLabel;
+  final VoidCallback? onSecondaryAction;
+
+  /// Short red pill top-right for something urgent (e.g. an open SOS).
+  final String? alert;
+  final LinearGradient? gradient;
+  final Color? accent;
+
+  const HeroSummaryCard({
+    super.key,
+    required this.pill,
+    required this.title,
+    required this.subtitle,
+    required this.stats,
+    required this.actionLabel,
+    required this.onAction,
+    this.actionIcon,
+    this.secondaryActionLabel,
+    this.onSecondaryAction,
+    this.alert,
+    this.gradient,
+    this.accent,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final p = AppTheme.paletteFor(Theme.of(context).brightness);
+    final textTheme = Theme.of(context).textTheme;
+
+    return HeroCardShell(
+      gradient: gradient,
+      accent: accent,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Flexible(
+                flex: 3,
+                child: _Pill(
+                  label: pill,
+                  background: Colors.white.withValues(alpha: 0.18),
+                  foreground: Colors.white,
+                  style: textTheme.labelSmall,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                flex: 2,
+                child: alert == null
+                    ? const SizedBox.shrink()
+                    : Align(
+                        alignment: Alignment.centerRight,
+                        child: _Pill(
+                          label: alert!,
+                          background: p.danger,
+                          foreground: Colors.white,
+                          style: textTheme.labelSmall,
+                        ),
+                      ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: textTheme.titleLarge?.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            subtitle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: textTheme.bodySmall?.copyWith(
+              color: Colors.white.withValues(alpha: 0.8),
+            ),
+          ),
+          const Spacer(),
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+            ),
+            child: Row(
+              children: [
+                for (var i = 0; i < stats.length; i++) ...[
+                  if (i > 0)
+                    Container(
+                      width: 1,
+                      height: 28,
+                      color: Colors.white.withValues(alpha: 0.18),
+                    ),
+                  Expanded(
+                    child: Column(
+                      children: [
+                        Text(
+                          stats[i].value,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: textTheme.titleMedium?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        Text(
+                          stats[i].label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: textTheme.labelSmall?.copyWith(
+                            color: Colors.white.withValues(alpha: 0.75),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _GradientButton(
+                  label: actionLabel,
+                  icon: actionIcon,
+                  onPressed: onAction,
+                ),
+              ),
+              if (secondaryActionLabel != null) ...[
+                const SizedBox(width: 8),
+                _GhostButton(
+                  label: secondaryActionLabel!,
+                  onPressed: onSecondaryAction,
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Marketplace slide: the society's newest listing with its photo, price
+/// and seller flat — or an invitation to post when nothing is for sale.
+class HeroMarketCard extends StatelessWidget {
+  final String? title;
+  final String? price;
+  final String? sellerLine;
+  final String? postedAgo;
+  final String? imageUrl;
+  final VoidCallback onOpen;
+  final VoidCallback onBrowse;
+
+  const HeroMarketCard({
+    super.key,
+    required this.title,
+    required this.price,
+    required this.sellerLine,
+    required this.postedAgo,
+    required this.imageUrl,
+    required this.onOpen,
+    required this.onBrowse,
+  });
+
+  /// "Nothing for sale yet" variant.
+  const HeroMarketCard.empty({
+    super.key,
+    required this.onOpen,
+    required this.onBrowse,
+  })  : title = null,
+        price = null,
+        sellerLine = null,
+        postedAgo = null,
+        imageUrl = null;
+
+  bool get _hasListing => title != null;
+
+  /// The marketplace card's own hue — warm amber into coral, so it sits
+  /// apart from the purple flat card and the teal security desk.
+  static const _amber = Color(0xFFE8913A);
+  static const _coral = Color(0xFFD5573B);
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final soft = Colors.white.withValues(alpha: 0.8);
+
+    Widget thumb() => ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: Container(
+            width: 92,
+            height: 92,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.16),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: imageUrl == null
+                ? Icon(
+                    _hasListing
+                        ? Icons.sell_outlined
+                        : Icons.storefront_outlined,
+                    color: Colors.white,
+                    size: 34,
+                  )
+                : Image.network(
+                    imageUrl!,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) => const Icon(
+                      Icons.sell_outlined,
+                      color: Colors.white,
+                      size: 34,
+                    ),
+                  ),
+          ),
+        );
+
+    return HeroCardShell(
+      gradient: const LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [_amber, _coral],
+      ),
+      accent: const Color(0xFFFFC27A),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              _Pill(
+                label: 'Marketplace',
+                background: Colors.white.withValues(alpha: 0.18),
+                foreground: Colors.white,
+                style: textTheme.labelSmall,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _hasListing
+                      ? 'Newest · ${postedAgo ?? ''}'
+                      : 'In your society',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.end,
+                  style: textTheme.labelSmall?.copyWith(color: soft),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              thumb(),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title ?? 'Nothing for sale yet',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: textTheme.titleMedium?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                        height: 1.2,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    if (_hasListing) ...[
+                      Text(
+                        price ?? '',
+                        style: textTheme.titleMedium?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      if (sellerLine != null)
+                        Text(
+                          sellerLine!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: textTheme.bodySmall?.copyWith(color: soft),
+                        ),
+                    ] else
+                      Text(
+                        'Sell, swap or give away things to your neighbours.',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: textTheme.bodySmall?.copyWith(color: soft),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const Spacer(),
+          Row(
+            children: [
+              Expanded(
+                child: _GradientButton(
+                  label: _hasListing ? 'View item' : 'Post an item',
+                  icon: _hasListing
+                      ? Icons.visibility_rounded
+                      : Icons.add_rounded,
+                  foreground: _coral,
+                  onPressed: onOpen,
+                ),
+              ),
+              const SizedBox(width: 8),
+              _GhostButton(label: 'Browse', onPressed: onBrowse),
             ],
           ),
         ],
@@ -1113,6 +1506,21 @@ class _HeroCarouselState extends State<HeroCarousel> {
   void initState() {
     super.initState();
     _controller = PageController();
+  }
+
+  @override
+  void didUpdateWidget(HeroCarousel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Conditional slides (guest pass, requests, approvals) come and go with
+    // live data; keep the dot on a page that still exists.
+    final last = widget.slides.length - 1;
+    if (last >= 0 && _page > last) {
+      _page = last;
+      // Moving the page notifies listeners; not allowed mid-build.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _controller.hasClients) _controller.jumpToPage(last);
+      });
+    }
   }
 
   @override

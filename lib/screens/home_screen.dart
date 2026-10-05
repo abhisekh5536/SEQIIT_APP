@@ -1,12 +1,15 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 
 import '../models/complaint_models.dart';
 import '../models/notice_models.dart';
 import '../models/society_models.dart';
+import '../models/visitor_models.dart';
 import '../services/app_session.dart';
 import '../services/complaints_service.dart';
+import '../services/home_summary_service.dart';
 import '../services/marketplace_service.dart';
 import '../services/notifications_service.dart';
 import '../services/notices_service.dart';
@@ -17,11 +20,14 @@ import '../theme/app_theme.dart';
 import '../widgets/hero_carousel.dart';
 import '../widgets/home_widgets.dart';
 import '../widgets/skeleton_loader.dart';
+import 'complaints/resident_complaint_detail_screen.dart';
 import 'join_society_screen.dart';
+import 'marketplace/resident/listing_detail_screen.dart';
 import 'notices/notice_detail_screen.dart';
 import 'request_status_screen.dart';
 import 'security/widgets/admin_sos_alert_dialog.dart';
 import 'security/widgets/sos_dialog.dart';
+import 'visitors/visitor_detail_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -241,6 +247,14 @@ class _HomeScreenState extends State<HomeScreen> {
   int _visitorsToday = 0;
   int _pendingVisitorsCount = 0;
   bool _isLoadingHome = true;
+
+  // Hero carousel data — every card is backed by these, nothing static.
+  HomeSummary _summary = const HomeSummary();
+  MarketplaceTeaser _market = MarketplaceTeaser.disabled;
+  VisitorRecord? _guestPass;
+  ComplaintRecord? _activeRequest; // resident: their most recent open one
+  List<ComplaintRecord> _openComplaints = const []; // admin: all open ones
+  String? _latestNotificationId;
   StreamSubscription? _sosSub;
 
   String? _badgeFor(String title) {
@@ -322,7 +336,19 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _onNotificationsChanged() {
-    if (mounted) {
+    if (!mounted) return;
+    // Every module's alert lands in the (live) bell first. When a new one
+    // arrives — a notice, a complaint update, a join request — reload the
+    // carousel so its cards follow. Compare the newest id rather than
+    // reloading on every notify: _loadHomeData itself refreshes the bell,
+    // which would otherwise loop.
+    final list = NotificationsService.instance.notifications;
+    final newest = list.isEmpty ? null : list.first.id;
+    final previous = _latestNotificationId;
+    _latestNotificationId = newest;
+    if (previous != null && newest != null && newest != previous) {
+      _loadHomeData(skipSessionLoad: true);
+    } else {
       setState(() {});
     }
   }
@@ -336,10 +362,25 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       ResidentDocumentsService.instance.refreshCounts();
+      final session = AppSession.instance;
+      // Carousel data that does not depend on anything below; started now
+      // so it loads in parallel with the notices/complaints queries.
+      final summaryFuture =
+          HomeSummaryService.instance.fetchSummary(session.societyId);
+      final marketFuture = HomeSummaryService.instance.fetchMarketplaceTeaser();
+      final guestPassFuture = VisitorsService.instance
+          .fetchNextGuestPass()
+          .catchError((Object _) => null);
+
       final notices = await NoticesService.instance.fetchResidentNotices();
       int openReqs = 0;
+      ComplaintRecord? activeRequest;
+      List<ComplaintRecord> openComplaints = const [];
+      bool needsAction(ComplaintRecord c) =>
+          c.status == ComplaintStatus.open ||
+          c.status == ComplaintStatus.inProgress ||
+          c.status == ComplaintStatus.reopened;
       try {
-        final session = AppSession.instance;
         if (session.isAdmin) {
           if (session.societyId != null) {
             MarketplaceService.instance
@@ -347,25 +388,17 @@ class _HomeScreenState extends State<HomeScreen> {
           }
           final complaints = await ComplaintsService.instance
               .fetchSocietyComplaints();
-          openReqs = complaints
-              .where(
-                (c) =>
-                    c.status == ComplaintStatus.open ||
-                    c.status == ComplaintStatus.inProgress ||
-                    c.status == ComplaintStatus.reopened,
-              )
-              .length;
+          openComplaints = complaints.where(needsAction).toList();
+          openReqs = openComplaints.length;
         } else {
           final complaints = await ComplaintsService.instance
               .fetchResidentComplaints();
-          openReqs = complaints
-              .where(
-                (c) =>
-                    c.status == ComplaintStatus.open ||
-                    c.status == ComplaintStatus.inProgress ||
-                    c.status == ComplaintStatus.reopened,
-              )
-              .length;
+          openReqs = complaints.where(needsAction).length;
+          // The Request card follows the resident's latest live complaint,
+          // including one marked resolved that still awaits their confirm.
+          final live = complaints.where((c) => c.isActive).toList()
+            ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+          activeRequest = live.isEmpty ? null : live.first;
         }
       } catch (_) {}
 
@@ -384,6 +417,10 @@ class _HomeScreenState extends State<HomeScreen> {
       // Refresh and reconcile notifications to keep unread bell dot in sync
       NotificationsService.instance.fetchNotifications();
 
+      final summary = await summaryFuture;
+      final market = await marketFuture;
+      final guestPass = await guestPassFuture;
+
       if (mounted) {
         setState(() {
           _liveNotices = notices.take(3).toList();
@@ -392,6 +429,11 @@ class _HomeScreenState extends State<HomeScreen> {
           _openRequestsCount = openReqs;
           _visitorsToday = visitorsToday;
           _pendingVisitorsCount = pendingVisitors;
+          _summary = summary;
+          _market = market;
+          _guestPass = guestPass;
+          _activeRequest = activeRequest;
+          _openComplaints = openComplaints;
           _isLoadingHome = false;
         });
       }
@@ -599,89 +641,304 @@ class _HomeScreenState extends State<HomeScreen> {
     SosDialog.show(context);
   }
 
-  /// Slides for the hero carousel. The first is always the balance card;
-  /// the rest reflect things a resident (or committee member) would
-  /// realistically need at a glance today. Each slide is a distinct
-  /// archetype (wallet, ticket, booking, status, notice) so the deck never
-  /// reads as the same template repeated.
+  /// Slides for the hero carousel — all backed by live data.
+  ///
+  /// The always-on cards come first in a fixed order: my flat / society,
+  /// security desk, the society's newest marketplace post (when the
+  /// marketplace is switched on) and the latest notice. After them, the
+  /// cards that only exist while something is running for this user
+  /// (approvals waiting, an open request, a guest pass).
   List<Widget> _buildHeroSlides(BuildContext context, AppSession session) {
-    final slides = <Widget>[
-      HeroBalanceCard(
-        societyName: session.societyName,
-        period: 'August 2026',
-        amount: '₹4,850',
-        dueCaption: session.flatSubtitle != null
-            ? 'Due by 15 August · ${session.flatSubtitle}'
-            : 'Due by 15 August · Flat Details Pending',
-        onPay: () => Navigator.pushNamed(context, '/maintenance'),
-        onLedger: () => Navigator.pushNamed(context, '/maintenance'),
-        onReceipts: () => Navigator.pushNamed(context, '/maintenance'),
-      ),
-      HeroTicketCard(
-        guestName: 'Mr. & Mrs. Sharma',
-        time: '6:30',
-        period: 'PM',
-        dayLabel: 'Today',
-        location: 'Tower B · Main gate',
-        passNumber: 'GP-4471',
-        onShow: () => Navigator.pushNamed(context, '/visitors'),
-        onDetails: () => Navigator.pushNamed(context, '/visitors'),
-      ),
-      HeroBookingCard(
-        dateDay: '6',
-        dateMonth: 'SEP',
-        eyebrow: 'Booking confirmed',
-        title: 'Community Hall',
-        timeRange: 'Sat 6 Sep · 6:00–9:00 PM',
-        detail: "Aarav's birthday",
-        onManage: () => Navigator.pushNamed(context, '/facilities'),
-        onRules: () => Navigator.pushNamed(context, '/facilities'),
-      ),
-      if (session.isAdmin)
-        HeroStatusCard(
-          pill: 'Approvals',
-          eyebrow: 'Awaiting your review',
-          title:
-              '$_openRequestsCount open ${_openRequestsCount == 1 ? 'request' : 'requests'}',
-          detail: 'Gate passes, maintenance exceptions and vendor notes',
-          steps: const ['Raised', 'In review', 'Resolved'],
-          current: 1,
-          actionLabel: 'Review now',
-          onAction: () => Navigator.pushNamed(context, '/admin-approvals'),
-        )
-      else
-        HeroStatusCard(
-          pill: 'Request #C-118',
-          eyebrow: 'Plumbing · Tower B, Flat 204',
-          title: 'In progress',
-          detail: 'Rahul from the site team assigned · ETA today, 4–6 PM',
-          steps: const ['Received', 'In progress', 'Resolved'],
-          current: 1,
-          actionLabel: 'Track request',
-          onAction: () => Navigator.pushNamed(context, '/complaints'),
-          secondaryActionLabel: 'History',
-          onSecondaryAction: () => Navigator.pushNamed(context, '/complaints'),
-        ),
-      if (_liveNotices.isNotEmpty)
-        HeroNoticeCard(
-          category: _liveNotices.first.category.label,
-          eyebrow: 'Society notice',
-          title: _liveNotices.first.title,
-          snippet: _liveNotices.first.body,
-          meta: _liveNotices.first.relativeTime,
-          pinned: _liveNotices.first.isPinned,
-          onRead: () {
-            final notice = _liveNotices.first;
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => NoticeDetailScreen(notice: notice),
-              ),
-            ).then((_) => _loadHomeData());
-          },
-        ),
+    final hasFlat = session.myResidences.isNotEmpty;
+    return [
+      // ── Always on ────────────────────────────────────────────────
+      session.isAdmin && !hasFlat
+          ? _societySlide(context, session)
+          : _myFlatSlide(context, session),
+      _securitySlide(context, hasFlat),
+      if (_market.enabled) _marketSlide(context),
+      _noticeSlide(context),
+
+      // ── Only while something is active ───────────────────────────
+      if (session.isAdmin && session.pendingApprovalsCount > 0)
+        _approvalsSlide(context, session.pendingApprovalsCount),
+      if (session.isAdmin && _openComplaints.isNotEmpty)
+        _adminRequestsSlide(context)
+      else if (!session.isAdmin && _activeRequest != null)
+        _residentRequestSlide(context, _activeRequest!),
+      if (_guestPass != null) _guestPassSlide(context, _guestPass!),
     ];
-    return slides;
+  }
+
+  Future<void> _go(String route) =>
+      Navigator.pushNamed(context, route).then((_) => _loadHomeData());
+
+  Future<void> _push(Widget screen) => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => screen),
+      ).then((_) => _loadHomeData());
+
+  Widget _approvalsSlide(BuildContext context, int count) {
+    return HeroStatusCard(
+      pill: 'Approvals',
+      eyebrow: 'Resident join requests',
+      title: '$count waiting for review',
+      detail: count == 1
+          ? 'A new resident cannot use the app until approved'
+          : 'New residents cannot use the app until approved',
+      steps: const ['Requested', 'In review', 'Approved'],
+      current: 1,
+      actionLabel: 'Review now',
+      onAction: () => _go('/admin-approvals'),
+    );
+  }
+
+  Widget _adminRequestsSlide(BuildContext context) {
+    final open = _openComplaints
+        .where((c) => c.status == ComplaintStatus.open)
+        .length;
+    final inProgress = _openComplaints
+        .where((c) => c.status == ComplaintStatus.inProgress)
+        .length;
+    final reopened = _openComplaints
+        .where((c) => c.status == ComplaintStatus.reopened)
+        .length;
+    final n = _openComplaints.length;
+    final parts = [
+      if (open > 0) '$open new',
+      if (inProgress > 0) '$inProgress in progress',
+      if (reopened > 0) '$reopened reopened',
+    ];
+    return HeroStatusCard(
+      pill: 'Helpdesk',
+      eyebrow: 'Requests needing action',
+      title: '$n open ${n == 1 ? 'request' : 'requests'}',
+      detail: parts.join(' · '),
+      steps: const ['Raised', 'In progress', 'Resolved'],
+      // Anything untouched keeps the stepper on "Raised".
+      current: open + reopened > 0 ? 0 : 1,
+      accent: reopened > 0 ? ComplaintStatus.reopened.foreground : null,
+      actionLabel: 'Open helpdesk',
+      onAction: () => _go('/complaints'),
+    );
+  }
+
+  Widget _residentRequestSlide(BuildContext context, ComplaintRecord c) {
+    final step = switch (c.status) {
+      ComplaintStatus.inProgress => 1,
+      ComplaintStatus.resolved => 2,
+      _ => 0,
+    };
+    final detail = c.isResolved
+        ? 'Marked resolved · confirm or reopen'
+        : (c.adminNotes?.trim().isNotEmpty ?? false)
+            ? 'Office: ${c.adminNotes!.trim()}'
+            : 'Raised ${c.timeAgo}';
+    return HeroStatusCard(
+      pill: 'Request · ${c.category.label}',
+      eyebrow: c.flatDisplay,
+      title: c.title,
+      detail: detail,
+      steps: const ['Received', 'In progress', 'Resolved'],
+      current: step,
+      accent: c.status.foreground,
+      actionLabel: c.isResolved ? 'Confirm or reopen' : 'Track request',
+      onAction: () =>
+          _push(ResidentComplaintDetailScreen(complaintId: c.id)),
+      secondaryActionLabel: 'All',
+      onSecondaryAction: () => _go('/complaints'),
+    );
+  }
+
+  Widget _guestPassSlide(BuildContext context, VisitorRecord v) {
+    final from = v.validFrom?.toLocal();
+    final until = v.validUntil?.toLocal();
+    final now = DateTime.now();
+
+    String time;
+    String period;
+    String day;
+    if (from == null || !from.isAfter(now)) {
+      // Already usable: say until when.
+      time = 'Now';
+      period = '';
+      day = until == null
+          ? 'Valid any time'
+          : 'Valid till ${_dayWord(until)}, ${DateFormat('h:mm a').format(until)}';
+    } else {
+      time = DateFormat('h:mm').format(from);
+      period = DateFormat('a').format(from);
+      day = _dayWord(from);
+    }
+
+    return HeroTicketCard(
+      guestName: v.visitorName,
+      time: time,
+      period: period,
+      dayLabel: day,
+      location: '${v.flatDisplay} · ${v.category.label}',
+      passNumber: v.approvalCode ?? '—',
+      onShow: () => _push(VisitorDetailScreen(visitorId: v.id)),
+      onDetails: () => _go('/visitors'),
+    );
+  }
+
+  /// "Today", "Tomorrow" or "Sat 4 Oct".
+  String _dayWord(DateTime d) {
+    final today = DateUtils.dateOnly(DateTime.now());
+    final diff = DateUtils.dateOnly(d).difference(today).inDays;
+    if (diff == 0) return 'Today';
+    if (diff == 1) return 'Tomorrow';
+    return DateFormat('EEE d MMM').format(d);
+  }
+
+  Widget _noticeSlide(BuildContext context) {
+    if (_liveNotices.isEmpty) {
+      return HeroNoticeCard(
+        category: 'Notice',
+        eyebrow: 'Society notices',
+        title: "You're all caught up",
+        snippet: 'Circulars from the society office will appear here.',
+        meta: 'Nothing new',
+        actionLabel: 'View all',
+        onRead: () => _go('/notices'),
+      );
+    }
+    final notice = _liveNotices.first;
+    // The pill names the card ("Notice"), not the notice's category: a
+    // "Maintenance" category pill read as a leftover maintenance card.
+    return HeroNoticeCard(
+      category: 'Notice',
+      eyebrow: notice.isReadByMe ? 'Latest notice' : 'New notice',
+      title: notice.title,
+      snippet: notice.body,
+      meta: notice.relativeTime,
+      pinned: notice.isPinned,
+      onRead: () => _push(NoticeDetailScreen(notice: notice)),
+    );
+  }
+
+  Widget _myFlatSlide(BuildContext context, AppSession session) {
+    final primary = session.primaryResidence;
+    final flat = primary == null ? null : session.flatOf(primary);
+    final block = _summary.myBlock;
+    final title = flat == null
+        ? 'My Flat'
+        : block == null
+            ? 'Flat ${flat.flatNumber}'
+            : '$block · Flat ${flat.flatNumber}';
+    final subtitle = flat == null
+        ? session.societyName
+        : 'Floor ${flat.floorNumber} · ${flat.type} · ${session.societyName}';
+    final slots = _summary.myParkingSlots;
+    // Household = everyone registered in the flat, including this user.
+    final household = session.householdMembers.length + 1;
+
+    return HeroSummaryCard(
+      pill: primary?.roleLabel ?? 'Resident',
+      title: title,
+      subtitle: subtitle,
+      stats: [
+        HeroStat('$household', household == 1 ? 'Member' : 'Members'),
+        HeroStat('${session.myVehicles.length}',
+            session.myVehicles.length == 1 ? 'Vehicle' : 'Vehicles'),
+        HeroStat(
+          slots.isEmpty ? '—' : slots.join(', '),
+          slots.length > 1 ? 'Parking bays' : 'Parking bay',
+        ),
+      ],
+      actionLabel: 'My Flat',
+      actionIcon: Icons.home_rounded,
+      onAction: () => _go('/my-flat'),
+      secondaryActionLabel: 'Vehicles',
+      onSecondaryAction: () => _go('/vehicles'),
+    );
+  }
+
+  Widget _societySlide(BuildContext context, AppSession session) {
+    final s = _summary;
+    final total = s.totalFlats ?? 0;
+    final occupied = s.occupiedFlats ?? 0;
+    return HeroSummaryCard(
+      pill: 'Society',
+      title: session.societyName,
+      subtitle: [
+        if (s.blocks != null) '${s.blocks} ${s.blocks == 1 ? 'block' : 'blocks'}',
+        if (session.societyCity != null) session.societyCity!,
+      ].join(' · '),
+      stats: [
+        HeroStat('$occupied/$total', 'Flats occupied'),
+        HeroStat('${s.activeResidents ?? 0}', 'Residents'),
+        HeroStat('${s.guardsActive}', 'Guards'),
+      ],
+      actionLabel: 'Flats',
+      actionIcon: Icons.domain_rounded,
+      onAction: () => _go('/flats-management'),
+      secondaryActionLabel: 'Directory',
+      onSecondaryAction: () => _go('/directory'),
+    );
+  }
+
+  Widget _securitySlide(BuildContext context, bool hasFlat) {
+    final p = AppTheme.paletteFor(Theme.of(context).brightness);
+    final s = _summary;
+    final sos = s.openSos;
+    return HeroSummaryCard(
+      pill: 'Security desk',
+      alert: sos > 0 ? '$sos open SOS' : null,
+      title: s.guardsActive > 0
+          ? '${s.guardsActive} ${s.guardsActive == 1 ? 'guard' : 'guards'} on duty'
+          : 'Security desk',
+      subtitle: sos > 0
+          ? 'An SOS is open — the security team has been alerted'
+          : 'Help is one tap away, day or night',
+      stats: [
+        HeroStat('${s.gatesActive}', s.gatesActive == 1 ? 'Gate' : 'Gates'),
+        HeroStat('${s.guardsActive}', 'On duty'),
+        HeroStat('${s.emergencyContacts}', 'Emergency contacts'),
+      ],
+      gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: sos > 0
+            ? [p.danger, p.danger.withValues(alpha: 0.75)]
+            : [const Color(0xFF1F6F6B), const Color(0xFF2E9A8E)],
+      ),
+      accent: sos > 0 ? p.danger : p.accent,
+      actionLabel: sos > 0 ? 'View SOS' : 'Emergency contacts',
+      actionIcon: sos > 0 ? Icons.crisis_alert_rounded : Icons.call_rounded,
+      onAction: () => _go('/security'),
+      // SOS is raised against a flat; accounts without one use the hub.
+      secondaryActionLabel: hasFlat && sos == 0 ? 'SOS' : null,
+      onSecondaryAction: hasFlat && sos == 0
+          ? () {
+              HapticFeedback.heavyImpact();
+              SosDialog.show(context);
+            }
+          : null,
+    );
+  }
+
+  Widget _marketSlide(BuildContext context) {
+    final l = _market.latest;
+    if (l == null) {
+      return HeroMarketCard.empty(
+        onOpen: () => _go('/marketplace'),
+        onBrowse: () => _go('/marketplace'),
+      );
+    }
+    return HeroMarketCard(
+      title: l.title,
+      price: l.priceLabel,
+      sellerLine: [
+        if (l.sellerName != null) l.sellerName!,
+        if (l.sellerFlatLabel != null) l.sellerFlatLabel!,
+      ].join(' · '),
+      postedAgo: l.postedAgo,
+      imageUrl: l.coverImageUrl,
+      onOpen: () => _push(ListingDetailScreen(listingId: l.id)),
+      onBrowse: () => _go('/marketplace'),
+    );
   }
 
   Widget _buildLatestUpdatesList(BuildContext context, AppPaletteData p) {
